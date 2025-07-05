@@ -16,18 +16,12 @@ import {
   createUniqueUuid,
   logger,
 } from '@elizaos/core';
-import { Context, Telegraf } from 'telegraf';
+import { type Context, Telegraf } from 'telegraf';
 import { type ChatMemberOwner, type ChatMemberAdministrator, type User } from 'telegraf/types';
 import { TELEGRAM_SERVICE_NAME } from './constants';
 import { validateTelegramConfig } from './environment';
 import { MessageManager } from './messageManager';
-import { handleUpdatePromptCommand } from './actions/updatePrompt';
-import {
-  TelegramEventTypes,
-  type TelegramContent,
-  type TelegramMessageReceivedPayload,
-  type TelegramWorldPayload,
-} from './types';
+import { TelegramEventTypes, TelegramWorldPayload } from './types';
 
 /**
  * Class representing a Telegram service that allows the agent to send and receive messages on Telegram.
@@ -92,13 +86,13 @@ export class TelegramService extends Service {
         );
 
         logger.log('🚀 Starting Telegram bot...');
-
-        // Set up middlewares and handlers before launching the bot
-        service.setupMiddlewares();
-        service.setupMessageHandlers();
-
-        // Initialize and launch the bot
         await service.initializeBot();
+
+        // Set up middlewares before message handlers to ensure proper preprocessing
+        service.setupMiddlewares();
+
+        // Set up message handlers after middlewares
+        service.setupMessageHandlers();
 
         // Wait for bot to be ready by testing getMe()
         await service.bot.telegram.getMe();
@@ -180,8 +174,6 @@ export class TelegramService extends Service {
    * @private
    */
   private setupMiddlewares(): void {
-    logger.info('Setting up Telegram middlewares');
-
     // Register the authorization middleware
     this.bot.use(this.authorizationMiddleware.bind(this));
 
@@ -271,21 +263,23 @@ export class TelegramService extends Service {
    * @private
    */
   private setupMessageHandlers(): void {
-    logger.info('Setting up Telegram message handlers');
-
-    // Handle message reactions
-    this.bot.on('message_reaction', async (ctx) => {
-      await this.messageManager.handleReaction(ctx);
-    });
-
-    // Handle update_prompt command explicitly
-    this.bot.command('update_prompt', async (ctx) => {
-      await handleUpdatePromptCommand(ctx, this.runtime);
-    });
-
-    // Handle regular messages
+    // Regular message handler
     this.bot.on('message', async (ctx) => {
-      await this.messageManager.handleMessage(ctx);
+      try {
+        // Message handling is now simplified since all preprocessing is done by middleware
+        await this.messageManager.handleMessage(ctx);
+      } catch (error) {
+        logger.error('Error handling message:', error);
+      }
+    });
+
+    // Reaction handler
+    this.bot.on('message_reaction', async (ctx) => {
+      try {
+        await this.messageManager.handleReaction(ctx);
+      } catch (error) {
+        logger.error('Error handling reaction:', error);
+      }
     });
   }
 

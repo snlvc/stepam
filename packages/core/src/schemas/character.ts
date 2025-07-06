@@ -65,6 +65,13 @@ const settingsSchema = z.record(z.union([z.string(), z.boolean(), z.number(), z.
 // Secrets schema
 const secretsSchema = z.record(z.union([z.string(), z.boolean(), z.number()])).optional();
 
+// Core reading schema
+const coreReadingSchema = z.object({
+  title: z.string(),
+  author: z.string(),
+  note: z.string(),
+});
+
 // Main Character schema
 export const characterSchema = z
   .object({
@@ -83,6 +90,7 @@ export const characterSchema = z
     settings: settingsSchema,
     secrets: secretsSchema,
     style: styleSchema,
+    core_readings: z.array(coreReadingSchema).optional(),
   })
   .strict(); // Only allow known properties
 

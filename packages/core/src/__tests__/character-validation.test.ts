@@ -280,7 +280,39 @@ describe('Character Schema Validation', () => {
       const result = validateCharacter(characterWithFlexibleSettings);
       expect(result.success).toBe(true);
     });
-  });
+
+    test('should validate character with core readings', () => {
+      const characterWithCoreReadings = {
+        name: 'Reading Character',
+        bio: 'Testing core readings validation',
+        core_readings: [
+          {
+            title: 'Test Book',
+            author: 'Test Author',
+            note: 'Test influence note',
+          },
+        ],
+      };
+      const result = validateCharacter(characterWithCoreReadings);
+      expect(result.success).toBe(true);
+
+      // Test invalid core reading
+      const characterWithInvalidCoreReading = {
+        name: 'Invalid Reading Character',
+        bio: 'Testing invalid core readings',
+        core_readings: [
+          {
+            title: 'Test Book',
+            // Missing author field
+            note: 'Test note',
+          },
+        ],
+      };
+      const invalidResult = validateCharacter(characterWithInvalidCoreReading);
+      expect(invalidResult.success).toBe(false);
+      expect(invalidResult.error?.message).toContain('Required');
+    });
+  }); // End of Complex validation scenarios
 
   describe('Edge cases and error handling', () => {
     test('should handle null and undefined inputs', () => {

@@ -18,6 +18,18 @@ export type TemplateType =
   | ((options: { state: State | { [key: string]: string } }) => string);
 
 /**
+ * Represents a core reading that influences the character's knowledge and behavior
+ */
+export interface CoreReading {
+  /** Title of the reading */
+  title: string;
+  /** Author of the reading */
+  author: string;
+  /** Note about how this reading influences the character */
+  note: string;
+}
+
+/**
  * Configuration for an agent's character, defining its personality, knowledge, and capabilities.
  * This is a central piece of an agent's definition, used by the `AgentRuntime` to initialize and operate the agent.
  * It includes:
@@ -32,6 +44,7 @@ export type TemplateType =
  * - `plugins`: A list of plugin names to be loaded for this character.
  * - `settings`, `secrets`: Configuration key-value pairs, with secrets being handled more securely.
  * - `style`: Guidelines for the character's writing style in different contexts (chat, post).
+ * - `core_readings`: List of foundational texts that shape the character's knowledge and responses.
  */
 export interface Character {
   /** Optional unique identifier */
@@ -88,6 +101,9 @@ export interface Character {
     chat?: string[];
     post?: string[];
   };
+
+  /** Core readings that shape the character's knowledge */
+  core_readings?: CoreReading[];
 }
 
 export enum AgentStatus {

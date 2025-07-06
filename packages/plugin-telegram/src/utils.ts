@@ -1,6 +1,6 @@
 import { Markup } from 'telegraf';
-import { InlineKeyboardButton } from '@telegraf/types';
-import { Button } from './types';
+import type { InlineKeyboardButton } from 'telegraf/types';
+import type { Button } from './types';
 
 // A list of Telegram MarkdownV2 reserved characters that must be escaped
 const TELEGRAM_RESERVED_REGEX = /([_*[\]()~`>#+\-=|{}.!\\])/g;
@@ -200,16 +200,15 @@ export function splitMessage(text: string, maxLength = 4096): string[] {
 /**
  * Converts Eliza buttons into Telegram buttons
  * @param {Button[]} buttons - The buttons from Eliza content
- * @returns {InlineKeyboardButton[]} Array of Telegram buttons
+ * @returns {InlineKeyboardButton[][]} Array of Telegram buttons
  */
-export function convertToTelegramButtons(buttons?: Button[] | null): InlineKeyboardButton[] {
-  if (!buttons) return [];
-  return buttons.map((button: Button) => {
-    switch (button.kind) {
-      case 'login':
-        return Markup.button.login(button.text, button.url);
-      case 'url':
-        return Markup.button.url(button.text, button.url);
+export function convertToTelegramButtons(buttons?: Button[] | null): InlineKeyboardButton[][] {
+  if (!buttons?.length) return [];
+  const row = buttons.map((button: Button) => {
+    if (button.kind === 'login') {
+      return Markup.button.login(button.text, button.url);
     }
+    return Markup.button.url(button.text, button.url);
   });
+  return [row];
 }

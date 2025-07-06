@@ -12,6 +12,7 @@ import {
   logger,
 } from '@elizaos/core';
 import type { Chat, Message, ReactionType, Update } from '@telegraf/types';
+import type { CallbackQuery } from '@telegraf/types';
 import type { Context, NarrowedContext, Telegraf } from 'telegraf';
 import { Markup } from 'telegraf';
 import {
@@ -20,6 +21,7 @@ import {
   type TelegramMessageReceivedPayload,
   type TelegramMessageSentPayload,
   type TelegramReactionReceivedPayload,
+  type Button,
 } from './types';
 import { convertToTelegramButtons, convertMarkdownToTelegram } from './utils';
 
@@ -210,7 +212,11 @@ export class MessageManager {
       const chunks = this.splitMessage(content.text ?? '');
       const sentMessages: Message.TextMessage[] = [];
 
-      const telegramButtons = convertToTelegramButtons(content.buttons ?? []);
+      const buttons = ((content.buttons as unknown as Button[]) ?? []).map((btn) =>
+        btn.kind === 'login'
+          ? Markup.button.login(btn.text, btn.url)
+          : Markup.button.url(btn.text, btn.url)
+      );
 
       if (!ctx.chat) {
         logger.error('sendMessageInChunks: ctx.chat is undefined');
@@ -224,11 +230,12 @@ export class MessageManager {
           logger.error('sendMessageInChunks loop: ctx.chat is undefined');
           continue;
         }
+        const markup = buttons.length > 0 ? Markup.inlineKeyboard([buttons]) : undefined;
         const sentMessage = (await ctx.telegram.sendMessage(ctx.chat.id, chunk, {
           reply_parameters:
             i === 0 && replyToMessageId ? { message_id: replyToMessageId } : undefined,
           parse_mode: 'MarkdownV2',
-          ...Markup.inlineKeyboard(telegramButtons),
+          reply_markup: markup?.reply_markup,
         })) as Message.TextMessage;
 
         sentMessages.push(sentMessage);
@@ -391,14 +398,6 @@ export class MessageManager {
       // Handle images
       const imageInfo = await this.processImage(message);
 
-      // Get message text - use type guards for safety
-      // let messageText = '';
-      // if ('text' in message && message.text) {
-      //   messageText = message.text;
-      // } else if ('caption' in message && message.caption) {
-      //   messageText = message.caption as string;
-      // }
-
       // Combine text and image description
       const fullText = imageInfo ? `${messageText} ${imageInfo.description}` : messageText;
       if (!fullText) return;
@@ -419,6 +418,25 @@ export class MessageManager {
         worldId: createUniqueUuid(this.runtime, roomId) as UUID,
         worldName: telegramRoomid,
       });
+
+      if (
+        [
+          'update your prompt',
+          'change your character',
+          'update your character',
+          'change your prompt',
+          'давай изменим промпрт',
+          'давай изменим персонаж',
+          'давай изменим промпт',
+          'давай изменим характер',
+        ].includes(messageText.toLowerCase())
+      ) {
+        const prompt = await this.runtime.getSetting('PROMPT');
+        const newPrompt = prompt.replace('{{user}}', ctx.from.first_name);
+        await this.runtime.setSetting('PROMPT', newPrompt);
+        await this.bot.telegram.sendMessage(ctx.chat.id, 'Prompt updated successfully!');
+        return;
+      }
 
       // Create the memory object
       const memory: Memory = {

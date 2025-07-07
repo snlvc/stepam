@@ -1263,19 +1263,211 @@ export class PluginNamespaceManager {
 export class ExtensionManager {
   constructor(private db: DrizzleDB) {}
 
-  async installRequiredExtensions(requiredExtensions: string[]): Promise<void> {
-    for (const extension of requiredExtensions) {
-      try {
-        await this.db.execute(sql.raw(`CREATE EXTENSION IF NOT EXISTS "${extension}"`));
-      } catch (error) {
-        const errorDetails = extractErrorDetails(error);
-        logger.warn(`Could not install extension ${extension}: ${errorDetails.message}`);
-        if (errorDetails.stack) {
+  private async detectDatabaseType(): Promise<'pglite' | 'postgres'> {
+    try {
+      // Try to check PostgreSQL version - this will work on full PostgreSQL but may fail on PGLite
+      const result = await this.db.execute(sql.raw('SELECT version()'));
+      const versionString = (result.rows[0] as any)?.version || '';
+
+      // Check if this looks like PGLite
+      if (
+        versionString.toLowerCase().includes('pglite') ||
+        versionString.includes('electric-sql')
+      ) {
+        return 'pglite';
+      }
+
+      return 'postgres';
+    } catch (error) {
+      // If version check fails, assume PGLite (it has more limited system table access)
+      return 'pglite';
+    }
+  }
+
+  async checkExtensionAvailability(extensionName: string): Promise<boolean> {
+    try {
+      // Check if extension is already installed
+      const installedResult = await this.db.execute(
+        sql.raw(`SELECT * FROM pg_extension WHERE extname = '${extensionName}'`)
+      );
+
+      if (installedResult.rows.length > 0) {
+        logger.debug(`[EXTENSION MANAGER] Extension ${extensionName} is already installed`);
+        return true;
+      }
+
+      // Check if extension is available for installation
+      const availableResult = await this.db.execute(
+        sql.raw(`SELECT * FROM pg_available_extensions WHERE name = '${extensionName}'`)
+      );
+
+      return availableResult.rows.length > 0;
+    } catch (error) {
+      const errorDetails = extractErrorDetails(error);
+
+      // For PGLite, vector extension might be built-in and not show in pg_available_extensions
+      // Try to test vector support directly for PGLite
+      if (
+        extensionName === 'vector' &&
+        (errorDetails.message.includes('pg_available_extensions') ||
+          errorDetails.message.includes('relation') ||
+          errorDetails.message.includes('does not exist'))
+      ) {
+        try {
+          await this.validateVectorSupport();
+          logger.debug(`[EXTENSION MANAGER] Vector support detected via validation test`);
+          return true;
+        } catch (vectorTestError) {
           logger.debug(
-            `[CUSTOM MIGRATOR] Extension installation stack trace: ${errorDetails.stack}`
+            `[EXTENSION MANAGER] Vector validation test failed: ${vectorTestError instanceof Error ? vectorTestError.message : String(vectorTestError)}`
           );
+          return false;
         }
       }
+
+      logger.debug(
+        `[EXTENSION MANAGER] Error checking extension ${extensionName}: ${errorDetails.message}`
+      );
+      return false;
+    }
+  }
+
+  async installRequiredExtensions(requiredExtensions: string[]): Promise<void> {
+    const dbType = await this.detectDatabaseType();
+    logger.debug(`[EXTENSION MANAGER] Detected database type: ${dbType}`);
+
+    for (const extension of requiredExtensions) {
+      try {
+        // For PGLite, vector extension is built-in if available, skip installation check
+        if (dbType === 'pglite' && extension === 'vector') {
+          try {
+            await this.validateVectorSupport();
+            logger.info(`[EXTENSION MANAGER] Vector support confirmed for PGLite`);
+            continue;
+          } catch (vectorError) {
+            logger.error(
+              `[EXTENSION MANAGER] PGLite vector support validation failed: ${vectorError instanceof Error ? vectorError.message : String(vectorError)}`
+            );
+            throw new Error(
+              `PGLite does not have vector support enabled. Please use the pgvector/pgvector image or enable vector extensions in your PGLite setup.`
+            );
+          }
+        }
+
+        // First check if we can install this extension
+        const isAvailable = await this.checkExtensionAvailability(extension);
+
+        if (!isAvailable) {
+          // For critical extensions like vector, this should be a hard error
+          if (extension === 'vector') {
+            const errorMessage = `The PostgreSQL vector extension is not available on this database server. 
+Please install it using one of these methods:
+
+1. Install pgvector extension:
+   - Ubuntu/Debian: sudo apt-get install postgresql-14-pgvector
+   - RHEL/CentOS: sudo yum install pgvector
+   - macOS (Homebrew): brew install pgvector
+
+2. Or install via SQL (if you have superuser privileges):
+   - Connect as superuser and run: CREATE EXTENSION vector;
+
+3. For managed PostgreSQL services:
+   - Enable the vector extension in your provider's console
+   - AWS RDS: Add pgvector to shared_preload_libraries
+   - Google Cloud SQL: Enable the vector extension
+   - Azure Database: Enable pgvector extension
+
+The vector extension is required for storing and searching embeddings.`;
+
+            logger.error(`[EXTENSION MANAGER] ${errorMessage}`);
+            throw new Error(`Required extension '${extension}' is not available. ${errorMessage}`);
+          } else {
+            logger.warn(`[EXTENSION MANAGER] Extension ${extension} is not available, skipping`);
+            continue;
+          }
+        }
+
+        // Try to install the extension
+        await this.db.execute(sql.raw(`CREATE EXTENSION IF NOT EXISTS "${extension}"`));
+        logger.info(`[EXTENSION MANAGER] Successfully installed/ensured extension: ${extension}`);
+      } catch (error) {
+        const errorDetails = extractErrorDetails(error);
+
+        // If this is a permissions error, provide helpful guidance
+        if (
+          errorDetails.message.includes('permission denied') ||
+          errorDetails.message.includes('must be owner') ||
+          errorDetails.message.includes('superuser')
+        ) {
+          const permissionError = `Extension '${extension}' installation failed due to insufficient privileges.
+Please ensure:
+1. Your database user has SUPERUSER privileges, OR
+2. The extension is pre-installed by a database administrator, OR
+3. Contact your database administrator to install the '${extension}' extension
+
+Original error: ${errorDetails.message}`;
+
+          logger.error(`[EXTENSION MANAGER] ${permissionError}`);
+
+          if (extension === 'vector') {
+            throw new Error(
+              `Failed to install required extension '${extension}': ${permissionError}`
+            );
+          } else {
+            logger.warn(
+              `[EXTENSION MANAGER] Non-critical extension ${extension} failed to install, continuing`
+            );
+          }
+        } else {
+          logger.error(
+            `[EXTENSION MANAGER] Failed to install extension ${extension}: ${errorDetails.message}`
+          );
+          if (errorDetails.stack) {
+            logger.debug(
+              `[EXTENSION MANAGER] Extension installation stack trace: ${errorDetails.stack}`
+            );
+          }
+
+          if (extension === 'vector') {
+            throw new Error(
+              `Failed to install required extension '${extension}': ${errorDetails.message}`
+            );
+          } else {
+            logger.warn(
+              `[EXTENSION MANAGER] Non-critical extension ${extension} failed to install, continuing`
+            );
+          }
+        }
+      }
+    }
+  }
+
+  async validateVectorSupport(): Promise<void> {
+    try {
+      // Test if vector type is available by trying to create a temporary table
+      await this.db.execute(
+        sql.raw(`
+        CREATE TEMPORARY TABLE vector_test_table (
+          id SERIAL PRIMARY KEY,
+          test_vector vector(3)
+        )
+      `)
+      );
+
+      // Clean up the test table
+      await this.db.execute(sql.raw(`DROP TABLE IF EXISTS vector_test_table`));
+
+      logger.debug('[EXTENSION MANAGER] Vector extension validation successful');
+    } catch (error) {
+      const errorDetails = extractErrorDetails(error);
+
+      if (errorDetails.message.includes('type "vector" does not exist')) {
+        throw new Error(`Vector extension is not properly installed. The 'vector' data type is not available.
+Please ensure the pgvector extension is installed and enabled in your PostgreSQL database.`);
+      }
+
+      // Re-throw other errors
+      throw new Error(`Vector support validation failed: ${errorDetails.message}`);
     }
   }
 }
@@ -1345,7 +1537,19 @@ export async function runPluginMigrations(
   const introspector = new DrizzleSchemaIntrospector();
   const extensionManager = new ExtensionManager(db);
 
+  // Install required extensions with robust error handling
   await extensionManager.installRequiredExtensions(['vector', 'fuzzystrmatch']);
+
+  // Validate that vector support is working before proceeding with table creation
+  try {
+    await extensionManager.validateVectorSupport();
+  } catch (vectorError) {
+    logger.error(
+      `[CUSTOM MIGRATOR] Vector validation failed: ${vectorError instanceof Error ? vectorError.message : String(vectorError)}`
+    );
+    throw vectorError;
+  }
+
   const schemaName = await namespaceManager.getPluginSchema(pluginName);
   await namespaceManager.ensureNamespace(schemaName);
   const existingTables = await namespaceManager.introspectExistingTables(schemaName);
@@ -1448,6 +1652,43 @@ export async function runPluginMigrations(
     logger.debug(`[CUSTOM MIGRATOR] Completed migration for plugin: ${pluginName}`);
   } catch (error) {
     const errorDetails = extractErrorDetails(error);
+
+    // Provide specific guidance for vector-related errors
+    if (
+      errorDetails.message.includes('type "vector" does not exist') ||
+      errorDetails.message.includes('vector extension')
+    ) {
+      const vectorErrorMessage = `
+Migration failed due to missing PostgreSQL vector extension.
+
+SOLUTION STEPS:
+1. Install the pgvector extension on your PostgreSQL server:
+   - Ubuntu/Debian: sudo apt-get install postgresql-14-pgvector (adjust version as needed)
+   - RHEL/CentOS: sudo yum install pgvector
+   - macOS (Homebrew): brew install pgvector
+   
+2. Connect to your database as a superuser and run:
+   CREATE EXTENSION IF NOT EXISTS vector;
+   
+3. For managed PostgreSQL services:
+   - AWS RDS: Enable pgvector in the parameter group and restart
+   - Google Cloud SQL: Enable the vector extension in the console
+   - Azure Database: Contact support to enable pgvector
+   
+4. If using Docker PostgreSQL:
+   - Use the pgvector/pgvector:pg16 image, or
+   - Install pgvector in your existing container
+
+Original error: ${errorDetails.message}
+`;
+
+      logger.error(`[CUSTOM MIGRATOR] ${vectorErrorMessage}`);
+      throw new Error(
+        `Migration failed for plugin ${pluginName}: Vector extension not available. ${vectorErrorMessage}`
+      );
+    }
+
+    // Generic error handling for other migration issues
     logger.error(
       `[CUSTOM MIGRATOR] Migration failed for plugin ${pluginName}: ${errorDetails.message}`
     );

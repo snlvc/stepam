@@ -263,22 +263,30 @@ export class TelegramService extends Service {
    * @private
    */
   private setupMessageHandlers(): void {
-    // Regular message handler
+    // Handle regular messages
     this.bot.on('message', async (ctx) => {
       try {
-        // Message handling is now simplified since all preprocessing is done by middleware
         await this.messageManager.handleMessage(ctx);
       } catch (error) {
         logger.error('Error handling message:', error);
       }
     });
 
-    // Reaction handler
+    // Handle message reactions
     this.bot.on('message_reaction', async (ctx) => {
       try {
         await this.messageManager.handleReaction(ctx);
       } catch (error) {
         logger.error('Error handling reaction:', error);
+      }
+    });
+
+    // Handle callback queries (for prompt updates)
+    this.bot.on('callback_query', async (ctx) => {
+      try {
+        await this.messageManager.handleCallbackQuery(ctx);
+      } catch (error) {
+        logger.error('Error handling callback query:', error);
       }
     });
   }

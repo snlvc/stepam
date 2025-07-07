@@ -24,6 +24,7 @@ import {
   type Button,
 } from './types';
 import { convertToTelegramButtons, convertMarkdownToTelegram } from './utils';
+import { PromptManager } from './promptManager';
 
 import fs from 'node:fs';
 
@@ -63,6 +64,7 @@ const getChannelType = (chat: Chat): ChannelType => {
 export class MessageManager {
   public bot: Telegraf<Context>;
   protected runtime: IAgentRuntime;
+  private promptManager: PromptManager;
 
   /**
    * Constructor for creating a new instance of a BotAgent.
@@ -73,6 +75,7 @@ export class MessageManager {
   constructor(bot: Telegraf<Context>, runtime: IAgentRuntime) {
     this.bot = bot;
     this.runtime = runtime;
+    this.promptManager = new PromptManager(runtime);
   }
 
   // Process image messages and generate descriptions
@@ -348,6 +351,7 @@ export class MessageManager {
    */
   public async handleMessage(ctx: Context): Promise<void> {
     try {
+      logger.info('handleMessage: ctx:', ctx);
       if (!ctx.message || !ctx.from) return;
       const message = ctx.message;
 
@@ -372,6 +376,22 @@ export class MessageManager {
         messageText = message.caption;
       } else {
         logger.debug('Message has no text content');
+        return;
+      }
+
+      logger.info('Processing message:', { text: messageText, type: messageType });
+
+      // Check if this is a prompt edit message
+      if (messageText.toUpperCase().startsWith('EDIT:')) {
+        logger.info('Handling prompt edit message');
+        await this.promptManager.handleEditMessage(ctx);
+        return;
+      }
+
+      // Check if this is a prompt update request
+      if (this.promptManager.isPromptUpdateRequest(messageText)) {
+        logger.info('Handling prompt update request');
+        await this.promptManager.handlePromptUpdate(ctx);
         return;
       }
 
@@ -419,25 +439,6 @@ export class MessageManager {
         worldName: telegramRoomid,
       });
 
-      if (
-        [
-          'update your prompt',
-          'change your character',
-          'update your character',
-          'change your prompt',
-          'давай изменим промпрт',
-          'давай изменим персонаж',
-          'давай изменим промпт',
-          'давай изменим характер',
-        ].includes(messageText.toLowerCase())
-      ) {
-        const prompt = await this.runtime.getSetting('PROMPT');
-        const newPrompt = prompt.replace('{{user}}', ctx.from.first_name);
-        await this.runtime.setSetting('PROMPT', newPrompt);
-        await this.bot.telegram.sendMessage(ctx.chat.id, 'Prompt updated successfully!');
-        return;
-      }
-
       // Create the memory object
       const memory: Memory = {
         id: messageId,
@@ -446,7 +447,6 @@ export class MessageManager {
         roomId,
         content: {
           text: fullText,
-          // attachments?
           source: 'telegram',
           channelType: channelType,
           inReplyTo:
@@ -458,11 +458,7 @@ export class MessageManager {
           entityName: ctx.from.first_name,
           entityUserName: ctx.from.username,
           fromBot: ctx.from.is_bot,
-          // include very technical/exact reference to this user for security reasons
-          // don't remove or change this, spartan needs this
           fromId: chat.id,
-          // why message? all Memories contain content (which is basically a message)
-          // what are the other types?
           type: 'message',
         },
         createdAt: message.date * 1000,
@@ -548,6 +544,60 @@ export class MessageManager {
         from: ctx.from?.username || ctx.from?.id,
       });
       throw error;
+    }
+  }
+
+  // Add method to handle callback queries for prompt updates
+  public async handleCallbackQuery(ctx: Context): Promise<void> {
+    try {
+      logger.info('[MessageManager] Callback query received:', {
+        hasCallbackQuery: !!ctx.callbackQuery,
+        callbackQueryType: ctx.callbackQuery ? typeof ctx.callbackQuery : 'undefined',
+        callbackQueryData:
+          ctx.callbackQuery && 'data' in ctx.callbackQuery ? ctx.callbackQuery.data : 'no data',
+        from: ctx.from,
+        chat: ctx.chat,
+      });
+
+      if (!ctx.callbackQuery) {
+        logger.warn('[MessageManager] No callback query found');
+        return;
+      }
+
+      const data = 'data' in ctx.callbackQuery ? ctx.callbackQuery.data : null;
+      logger.info('[MessageManager] Extracted callback data:', { data });
+
+      if (!data) {
+        logger.warn('[MessageManager] No data in callback query');
+        return;
+      }
+
+      // Answer the callback query to remove loading state
+      await ctx.answerCbQuery();
+      logger.info('[MessageManager] Answered callback query');
+
+      // Check if this is a prompt-related callback
+      if (
+        data.startsWith('apply_prompt:') ||
+        data === 'dismiss_prompt' ||
+        data.startsWith('edit_prompt:') ||
+        data === 'another_prompt'
+      ) {
+        logger.info('[MessageManager] Routing to prompt manager:', { data });
+        await this.promptManager.handlePromptCallback(ctx);
+        return;
+      }
+
+      logger.info('[MessageManager] Callback not handled by prompt manager:', { data });
+      // Handle other callback queries here if needed
+    } catch (error) {
+      logger.error('[MessageManager] Error handling callback query:', error);
+      try {
+        await ctx.answerCbQuery('Error processing request');
+        await ctx.reply('Sorry, I encountered an error while processing your request.');
+      } catch (replyError) {
+        logger.error('[MessageManager] Error sending error reply:', replyError);
+      }
     }
   }
 

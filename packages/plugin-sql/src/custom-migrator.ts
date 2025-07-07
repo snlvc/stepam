@@ -1016,6 +1016,99 @@ export class PluginNamespaceManager {
     return (res.rows as any[]).map((row) => row.table_name);
   }
 
+  async introspectExistingColumns(schemaName: string, tableName: string): Promise<string[]> {
+    const res = await this.db.execute(
+      sql.raw(
+        `SELECT column_name FROM information_schema.columns WHERE table_schema = '${schemaName}' AND table_name = '${tableName}'`
+      )
+    );
+    return (res.rows as any[]).map((row) => row.column_name);
+  }
+
+  async addMissingColumns(tableDef: TableDefinition, schemaName: string): Promise<void> {
+    const existingColumns = await this.introspectExistingColumns(schemaName, tableDef.name);
+    const missingColumns = tableDef.columns.filter((col) => !existingColumns.includes(col.name));
+
+    if (missingColumns.length === 0) {
+      logger.debug(`[CUSTOM MIGRATOR] Table ${tableDef.name} has all required columns`);
+      return;
+    }
+
+    logger.info(
+      `[CUSTOM MIGRATOR] Adding ${missingColumns.length} missing columns to ${tableDef.name}:`,
+      missingColumns.map((col) => col.name)
+    );
+
+    for (const column of missingColumns) {
+      try {
+        // First, add the column as nullable with default value
+        let columnDef = `"${column.name}" ${column.type}`;
+        if (column.unique) columnDef += ' UNIQUE';
+        if (column.defaultValue) {
+          // Handle different types of defaults
+          if (column.defaultValue === 'now()' || column.defaultValue.includes('now()')) {
+            columnDef += ' DEFAULT now()';
+          } else if (column.defaultValue === 'true' || column.defaultValue === 'false') {
+            columnDef += ` DEFAULT ${column.defaultValue}`;
+          } else if (
+            column.defaultValue === 'gen_random_uuid()' ||
+            column.defaultValue.includes('gen_random_uuid')
+          ) {
+            columnDef += ' DEFAULT gen_random_uuid()';
+          } else if (column.defaultValue.startsWith("'") || !isNaN(Number(column.defaultValue))) {
+            columnDef += ` DEFAULT ${column.defaultValue}`;
+          } else {
+            columnDef += ` DEFAULT ${column.defaultValue}`;
+          }
+        }
+
+        // Add the column as nullable first
+        const addColumnSQL = `ALTER TABLE "${schemaName}"."${tableDef.name}" ADD COLUMN ${columnDef}`;
+        await this.db.execute(sql.raw(addColumnSQL));
+
+        // If the column should be NOT NULL, update existing null values with default, then set NOT NULL
+        if (column.notNull && !column.primaryKey && column.defaultValue) {
+          // Update any null values with the default
+          const updateNullsSQL = `UPDATE "${schemaName}"."${tableDef.name}" SET "${column.name}" = ${
+            column.defaultValue === 'true' || column.defaultValue === 'false'
+              ? column.defaultValue
+              : column.defaultValue === 'now()' || column.defaultValue.includes('now()')
+                ? 'now()'
+                : column.defaultValue === 'gen_random_uuid()' ||
+                    column.defaultValue.includes('gen_random_uuid')
+                  ? 'gen_random_uuid()'
+                  : column.defaultValue.startsWith("'") || !isNaN(Number(column.defaultValue))
+                    ? column.defaultValue
+                    : column.defaultValue
+          } WHERE "${column.name}" IS NULL`;
+          await this.db.execute(sql.raw(updateNullsSQL));
+
+          // Now set the column to NOT NULL
+          const setNotNullSQL = `ALTER TABLE "${schemaName}"."${tableDef.name}" ALTER COLUMN "${column.name}" SET NOT NULL`;
+          await this.db.execute(sql.raw(setNotNullSQL));
+        }
+
+        logger.info(
+          `[CUSTOM MIGRATOR] Successfully added column ${column.name} to ${tableDef.name}`
+        );
+      } catch (error: any) {
+        const errorMessage = extractErrorMessage(error);
+        if (errorMessage.includes('already exists')) {
+          logger.debug(
+            `[CUSTOM MIGRATOR] Column ${column.name} already exists in ${tableDef.name}`
+          );
+        } else {
+          logger.error(
+            `[CUSTOM MIGRATOR] Failed to add column ${column.name} to ${tableDef.name}: ${errorMessage}`
+          );
+          throw new Error(
+            `Failed to add column ${column.name} to ${tableDef.name}: ${errorMessage}`
+          );
+        }
+      }
+    }
+  }
+
   async foreignKeyExists(
     schemaName: string,
     tableName: string,
@@ -1316,7 +1409,23 @@ export async function runPluginMigrations(
           throw new Error(`Failed to create table ${tableDef.name}: ${errorDetails.message}`);
         }
       } else {
-        logger.debug(`[CUSTOM MIGRATOR] Table ${tableDef.name} already exists, skipping creation`);
+        logger.debug(
+          `[CUSTOM MIGRATOR] Table ${tableDef.name} already exists, checking for missing columns`
+        );
+        try {
+          await namespaceManager.addMissingColumns(tableDef, schemaName);
+        } catch (error) {
+          const errorDetails = extractErrorDetails(error);
+          logger.error(
+            `[CUSTOM MIGRATOR] Failed to add missing columns to ${tableDef.name}: ${errorDetails.message}`
+          );
+          if (errorDetails.stack) {
+            logger.error(`[CUSTOM MIGRATOR] Column addition stack trace: ${errorDetails.stack}`);
+          }
+          throw new Error(
+            `Failed to add missing columns to ${tableDef.name}: ${errorDetails.message}`
+          );
+        }
       }
     }
 

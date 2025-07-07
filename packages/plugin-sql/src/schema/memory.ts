@@ -44,15 +44,14 @@ export const memoryTable = pgTable(
       onDelete: 'cascade',
     }),
     worldId: uuid('worldId'),
-    // .references(() => worldTable.id, {
-    //   onDelete: 'set null',
-    // }),
     unique: boolean('unique').default(true).notNull(),
     metadata: jsonb('metadata').default({}).notNull(),
+    isAnalyzed: boolean('is_analyzed').default(false).notNull(),
   },
   (table) => [
     index('idx_memories_type_room').on(table.type, table.roomId),
     index('idx_memories_world_id').on(table.worldId),
+    index('idx_memories_is_analyzed').on(table.isAnalyzed),
     foreignKey({
       name: 'fk_room',
       columns: [table.roomId],
@@ -68,11 +67,6 @@ export const memoryTable = pgTable(
       columns: [table.agentId],
       foreignColumns: [agentTable.id],
     }).onDelete('cascade'),
-    // foreignKey({
-    //   name: 'fk_world',
-    //   columns: [table.worldId],
-    //   foreignColumns: [worldTable.id],
-    // }).onDelete('set null'),
     index('idx_memories_metadata_type').on(sql`((metadata->>'type'))`),
     index('idx_memories_document_id').on(sql`((metadata->>'documentId'))`),
     index('idx_fragments_order').on(

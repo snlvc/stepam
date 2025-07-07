@@ -1559,6 +1559,7 @@ export class AgentRuntime implements IAgentRuntime {
     tableName: string;
     start?: number;
     end?: number;
+    isAnalyzed?: boolean;
   }): Promise<Memory[]> {
     return await this.adapter.getMemories(params);
   }

@@ -146,7 +146,7 @@ export class TelegramService extends Service {
   private async initializeBot(): Promise<void> {
     this.bot.launch({
       dropPendingUpdates: true,
-      allowedUpdates: ['message', 'message_reaction'],
+      allowedUpdates: ['message', 'message_reaction', 'callback_query'],
     });
 
     // Get bot info for identification purposes

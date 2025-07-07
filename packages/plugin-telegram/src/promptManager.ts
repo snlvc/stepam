@@ -15,10 +15,10 @@ import crypto from 'crypto';
 interface MessageMetadata extends CustomMetadata {
   type: MemoryType.MESSAGE;
   fromBot?: boolean;
-  isAnalyzed?: boolean;
   fromId?: number;
   entityName?: string;
   entityUserName?: string;
+  isAnalyzed?: boolean;
 }
 
 export class PromptManager {
@@ -69,32 +69,19 @@ export class PromptManager {
 
       // Get recent messages from the last 24 hours
       logger.info('[PromptManager] Fetching recent messages...');
-      const recentMessages = await this.runtime.getMemories({
+      const allMessages = await this.runtime.getMemories({
         tableName: 'messages',
         unique: true,
         agentId: this.runtime.agentId,
-        isAnalyzed: false,
         count: 100,
       });
-      logger.info('[PromptManager] Fetched messages:', { count: recentMessages.length });
 
-      // Filter messages after fetching
-      const filteredMessages = recentMessages
-        .filter((msg) => {
-          const metadata = msg.metadata as MessageMetadata;
-          return (
-            metadata &&
-            metadata.type === MemoryType.MESSAGE &&
-            !metadata.fromBot &&
-            !metadata.isAnalyzed
-          );
-        })
-        .slice(0, 10); // Take only the first 10 after filtering
-
-      logger.info('[PromptManager] Filtered messages:', {
-        total: recentMessages.length,
-        filtered: filteredMessages.length,
+      // Filter messages that haven't been analyzed
+      const recentMessages = allMessages.filter((msg) => {
+        const metadata = msg.metadata as MessageMetadata;
+        return !metadata?.isAnalyzed;
       });
+      logger.info('[PromptManager] Fetched messages:', { count: recentMessages.length });
 
       // Get relevant facts about the user
       logger.info('[PromptManager] Fetching user facts...');
@@ -107,13 +94,13 @@ export class PromptManager {
       logger.info('[PromptManager] Fetched facts:', { count: userFacts.length });
 
       // Format messages and facts for context
-      const messageContext = filteredMessages
+      const messageContext = recentMessages
         .map((m) => m.content.text)
         .filter(Boolean)
         .join('\n');
       logger.info('[PromptManager] Message context length:', {
         chars: messageContext.length,
-        messages: filteredMessages.length,
+        messages: recentMessages.length,
       });
 
       const factContext = userFacts
@@ -159,6 +146,69 @@ Based on this context and these facts, suggest an improved system prompt that wo
     }
   }
 
+  private async applyPromptAndMarkAnalyzed(prompt: string): Promise<void> {
+    logger.info('[PromptManager] Applying new prompt and marking messages as analyzed');
+
+    // Update runtime setting and character object
+    await this.runtime.setSetting('SYSTEM', prompt);
+    this.runtime.character.system = prompt;
+
+    // Update the agent's system prompt in the database
+    await this.runtime.updateAgent(this.runtime.agentId, {
+      system: prompt,
+      updatedAt: Date.now(),
+    });
+
+    // Get all messages and facts
+    const allMessages = await this.runtime.getMemories({
+      tableName: 'messages',
+      unique: true,
+      agentId: this.runtime.agentId,
+      count: 100,
+    });
+
+    const allFacts = await this.runtime.getMemories({
+      tableName: 'facts',
+      unique: true,
+      agentId: this.runtime.agentId,
+      count: 100,
+    });
+
+    // Filter messages that haven't been analyzed
+    const recentMessages = allMessages.filter((msg) => {
+      const metadata = msg.metadata as MessageMetadata;
+      return !metadata?.isAnalyzed;
+    });
+
+    const allMemories = [...recentMessages, ...allFacts];
+
+    logger.info('[PromptManager] Marking messages as analyzed', {
+      count: allMemories.length,
+    });
+
+    await Promise.all(
+      allMemories.map(async (message) => {
+        if (!message.id) {
+          logger.warn('[PromptManager] Message has no ID:', message);
+          return;
+        }
+
+        const metadata = message.metadata as MessageMetadata;
+        await this.runtime.updateMemory({
+          id: message.id as UUID,
+          metadata: {
+            ...metadata,
+            isAnalyzed: true,
+          },
+        });
+      })
+    );
+
+    logger.info('[PromptManager] Messages marked as analyzed', {
+      count: allMemories.length,
+    });
+  }
+
   public async handlePromptUpdate(ctx: Context): Promise<void> {
     try {
       logger.info('[PromptManager] Starting prompt update handling');
@@ -195,36 +245,7 @@ Based on this context and these facts, suggest an improved system prompt that wo
     }
   }
 
-  public async handleEditMessage(ctx: Context): Promise<void> {
-    if (!ctx.message || !('text' in ctx.message) || !ctx.message.text) return;
-
-    const text = ctx.message.text;
-    if (!text.toUpperCase().startsWith('EDIT:')) return;
-
-    try {
-      logger.info('[PromptManager] Processing edit message');
-
-      // Extract the edited prompt (remove the "EDIT:" prefix and trim)
-      const editedPrompt = text.slice(5).trim();
-
-      if (!editedPrompt) {
-        await ctx.reply('Please provide the edited prompt text after "EDIT:"');
-        return;
-      }
-
-      // Apply the edited prompt
-      await this.runtime.setSetting('SYSTEM', editedPrompt);
-      logger.info('[PromptManager] Applied edited system prompt');
-
-      await ctx.reply('✅ System prompt updated with your edited version!');
-    } catch (error) {
-      logger.error('[PromptManager] Error handling edit message:', error);
-      await ctx.reply('Sorry, I encountered an error while updating the prompt.');
-    }
-  }
-
   public async handlePromptCallback(ctx: Context): Promise<void> {
-    logger.info('[PromptManager] Handling prompt callback');
     if (!ctx.callbackQuery || !('data' in ctx.callbackQuery)) return;
 
     const data = ctx.callbackQuery.data;
@@ -242,55 +263,14 @@ Based on this context and these facts, suggest an improved system prompt that wo
           return;
         }
 
-        await this.runtime.setSetting('SYSTEM', suggestion);
         await this.runtime.setSetting(`prompt_suggestion_${hash}`, null);
-        logger.info('[PromptManager] Applied new system prompt');
+        await this.applyPromptAndMarkAnalyzed(suggestion);
 
-        // Mark messages as analyzed after successfully applying the prompt
-        const recentMessages = await this.runtime.getMemories({
-          tableName: 'messages',
-          unique: true,
-          agentId: this.runtime.agentId,
-          isAnalyzed: false,
-          count: 100,
-        });
-
-        const filteredMessages = recentMessages
-          .filter((msg) => {
-            const metadata = msg.metadata as MessageMetadata;
-            return (
-              metadata &&
-              metadata.type === MemoryType.MESSAGE &&
-              !metadata.fromBot &&
-              !metadata.isAnalyzed
-            );
-          })
-          .slice(0, 10);
-
-        logger.info('[PromptManager] Marking messages as analyzed after applying prompt...');
-        await Promise.all(
-          filteredMessages.map(async (message) => {
-            if (!message.id) {
-              logger.warn('[PromptManager] Message has no ID:', message);
-              return;
-            }
-
-            const metadata = message.metadata as MessageMetadata;
-            await this.runtime.updateMemory({
-              id: message.id as UUID,
-              metadata: {
-                ...metadata,
-                type: MemoryType.MESSAGE,
-                isAnalyzed: true,
-              },
-            });
-          })
-        );
-        logger.info('[PromptManager] Messages marked as analyzed');
-
+        await ctx.answerCbQuery('Prompt applied successfully!');
         await ctx.reply('✅ System prompt updated successfully!');
       } else if (data === 'dismiss_prompt') {
         logger.info('[PromptManager] Dismissing prompt update');
+        await ctx.answerCbQuery('Prompt update dismissed');
         await ctx.reply('Prompt update dismissed.');
       } else if (data.startsWith('edit_prompt:')) {
         const hash = data.split(':')[1];
@@ -299,26 +279,52 @@ Based on this context and these facts, suggest an improved system prompt that wo
         const suggestion = await this.runtime.getSetting(`prompt_suggestion_${hash}`);
         if (!suggestion) {
           logger.warn('[PromptManager] Suggestion not found for hash:', { hash });
+          await ctx.answerCbQuery('Suggestion has expired');
           await ctx.reply('Sorry, the suggestion has expired. Please request a new prompt update.');
           return;
         }
 
+        await ctx.answerCbQuery('Edit mode activated');
+
+        // Send the original prompt with "EDIT: " prefix for easy copying and editing
         await ctx.reply(
-          'To edit the prompt, please send your modified version starting with "EDIT:"'
+          `✏️ *Edit Mode Activated*\n\nHere's the suggested prompt ready for editing (tap and hold to copy):\n\n\`\`\`\nEDIT: ${suggestion}\n\`\`\`\n\nJust copy the text above, make your changes, and send it back!`,
+          { parse_mode: 'Markdown' }
         );
       } else if (data === 'another_prompt') {
         logger.info('[PromptManager] Generating another prompt suggestion');
+        await ctx.answerCbQuery('Generating new suggestion...');
         await this.handlePromptUpdate(ctx);
       }
 
       // Remove the inline keyboard
-      if (ctx.callbackQuery.message) {
-        await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-        logger.info('[PromptManager] Removed inline keyboard');
-      }
+      await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+      logger.info('[PromptManager] Removed inline keyboard');
     } catch (error) {
       logger.error('[PromptManager] Error handling prompt callback:', error);
       await ctx.reply('Sorry, I encountered an error while processing your request.');
+    }
+  }
+
+  public async handleEditedPrompt(ctx: Context, messageText: string): Promise<void> {
+    try {
+      logger.info('[PromptManager] Handling edited prompt');
+
+      // Extract the edited prompt (remove "EDIT:" prefix)
+      const editedPrompt = messageText.substring(5).trim();
+
+      if (!editedPrompt) {
+        await ctx.reply(
+          'Please provide the edited prompt after "EDIT:". For example:\nEDIT: Your modified prompt here...'
+        );
+        return;
+      }
+
+      await this.applyPromptAndMarkAnalyzed(editedPrompt);
+      await ctx.reply('✅ Your edited prompt has been applied successfully!');
+    } catch (error) {
+      logger.error('[PromptManager] Error handling edited prompt:', error);
+      await ctx.reply('Sorry, I encountered an error while applying your edited prompt.');
     }
   }
 }

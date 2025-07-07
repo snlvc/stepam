@@ -107,7 +107,6 @@ export interface IDatabaseAdapter {
     end?: number;
     roomId?: UUID;
     worldId?: UUID;
-    isAnalyzed?: boolean;
   }): Promise<Memory[]>;
 
   getMemoryById(id: UUID): Promise<Memory | null>;

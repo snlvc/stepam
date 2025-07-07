@@ -381,17 +381,17 @@ export class MessageManager {
 
       logger.info('Processing message:', { text: messageText, type: messageType });
 
-      // Check if this is a prompt edit message
-      if (messageText.toUpperCase().startsWith('EDIT:')) {
-        logger.info('Handling prompt edit message');
-        await this.promptManager.handleEditMessage(ctx);
-        return;
-      }
-
       // Check if this is a prompt update request
       if (this.promptManager.isPromptUpdateRequest(messageText)) {
         logger.info('Handling prompt update request');
         await this.promptManager.handlePromptUpdate(ctx);
+        return;
+      }
+
+      // Check if this is an edited prompt
+      if (messageText.startsWith('EDIT:')) {
+        logger.info('Handling edited prompt');
+        await this.promptManager.handleEditedPrompt(ctx, messageText);
         return;
       }
 
@@ -550,31 +550,10 @@ export class MessageManager {
   // Add method to handle callback queries for prompt updates
   public async handleCallbackQuery(ctx: Context): Promise<void> {
     try {
-      logger.info('[MessageManager] Callback query received:', {
-        hasCallbackQuery: !!ctx.callbackQuery,
-        callbackQueryType: ctx.callbackQuery ? typeof ctx.callbackQuery : 'undefined',
-        callbackQueryData:
-          ctx.callbackQuery && 'data' in ctx.callbackQuery ? ctx.callbackQuery.data : 'no data',
-        from: ctx.from,
-        chat: ctx.chat,
-      });
-
-      if (!ctx.callbackQuery) {
-        logger.warn('[MessageManager] No callback query found');
-        return;
-      }
+      if (!ctx.callbackQuery) return;
 
       const data = 'data' in ctx.callbackQuery ? ctx.callbackQuery.data : null;
-      logger.info('[MessageManager] Extracted callback data:', { data });
-
-      if (!data) {
-        logger.warn('[MessageManager] No data in callback query');
-        return;
-      }
-
-      // Answer the callback query to remove loading state
-      await ctx.answerCbQuery();
-      logger.info('[MessageManager] Answered callback query');
+      if (!data) return;
 
       // Check if this is a prompt-related callback
       if (
@@ -583,21 +562,14 @@ export class MessageManager {
         data.startsWith('edit_prompt:') ||
         data === 'another_prompt'
       ) {
-        logger.info('[MessageManager] Routing to prompt manager:', { data });
         await this.promptManager.handlePromptCallback(ctx);
         return;
       }
 
-      logger.info('[MessageManager] Callback not handled by prompt manager:', { data });
       // Handle other callback queries here if needed
     } catch (error) {
-      logger.error('[MessageManager] Error handling callback query:', error);
-      try {
-        await ctx.answerCbQuery('Error processing request');
-        await ctx.reply('Sorry, I encountered an error while processing your request.');
-      } catch (replyError) {
-        logger.error('[MessageManager] Error sending error reply:', replyError);
-      }
+      logger.error('Error handling callback query:', error);
+      await ctx.reply('Sorry, I encountered an error while processing your request.');
     }
   }
 

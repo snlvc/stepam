@@ -46,12 +46,10 @@ export const memoryTable = pgTable(
     worldId: uuid('worldId'),
     unique: boolean('unique').default(true).notNull(),
     metadata: jsonb('metadata').default({}).notNull(),
-    isAnalyzed: boolean('is_analyzed').default(false).notNull(),
   },
   (table) => [
     index('idx_memories_type_room').on(table.type, table.roomId),
     index('idx_memories_world_id').on(table.worldId),
-    index('idx_memories_is_analyzed').on(table.isAnalyzed),
     foreignKey({
       name: 'fk_room',
       columns: [table.roomId],

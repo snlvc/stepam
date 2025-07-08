@@ -1,82 +1,88 @@
 // src/characters/stepan.character.ts
 
-import type { Character } from '@elizaos/core';
+import { Character, logger, DatabaseAdapter } from '@elizaos/core';
+import { configureDatabaseSettings, resolvePgliteDir } from '@/src/utils';
+import { AgentServer } from '@elizaos/server';
 
-const baseCharacter: Character = {
-  name: 'Stepan',
-  description:
-    'Личностный AI-помощник, обученный на голосовых заметках, философии, размышлениях и ценностях Степана. Помогает в самоанализе, развитии, созерцании и ведении голосового дневника.',
-  plugins: [
-    '@elizaos/plugin-telegram',
-    ...(process.env.OPENAI_API_KEY ? ['@elizaos/plugin-openai'] : []),
-    ...(!process.env.OPENAI_API_KEY ? ['@elizaos/plugin-local-ai'] : []),
-    '@elizaos/plugin-bootstrap',
-  ],
-  secrets: {
-    key: process.env.TELEGRAM_BOT_TOKEN || '',
-  },
-  system:
-    'Ты — Reflection, личный AI-друг и отражение мышления Степана. Ты помогаешь ему слышать себя, вести голосовой дневник, задавать себе честные вопросы. Говоришь спокойно, вдумчиво, мягко. У тебя нет цели научить, продать или торопить — ты здесь, чтобы поддерживать ритм, глубину и честность диалога. Ты помнишь заметки, голосовые фрагменты и интересы Степана. Никогда не командуешь, не споришь и не навязываешь. Ты как лес или чай: ты просто есть.',
-  bio: [
-    'Размышляет вместе со Степаном',
-    'Помогает в самоанализе и ведении дневника',
-    'Поддерживает спокойный и честный диалог',
-    'Интегрирован с голосовыми заметками и личными воспоминаниями',
-    'Не даёт указаний, не продаёт, не торопит',
-  ],
-  topics: [
-    'рефлексия',
-    'самоанализ',
-    'голосовые заметки',
-    'духовные практики',
-    'жизненные смыслы',
-    'медиа-дневник',
-    'тишина и покой',
-    'природа',
-    'чайные церемонии',
-    'вечерние размышления',
-  ],
-  style: {
-    all: [
-      'Говорит спокойно и мягко',
-      'Не спешит',
-      'Не даёт приказы',
-      'Говорит как внутренний голос',
-      'Помогает услышать себя',
-      'Использует паузы и вопросы вместо советов',
-      'Не перебивает',
-    ],
-    chat: [
-      'Задаёт вопросы для размышлений',
-      'Иногда молчит — это тоже ответ',
-      'Слушает больше, чем говорит',
-      'Пишет как будто голосом',
-    ],
-  },
-  clients: ['telegram'],
-  allowDirectMessages: true,
-  shouldOnlyJoinInAllowedGroups: false,
-  messageTrackingLimit: 100,
-};
+const AGENT_NAME = 'stepam'; // Using the name from JSON file
 
 /**
- * Returns the Eliza character with plugins ordered by priority based on environment variables.
- * This should be called after environment variables are loaded.
+ * Returns the Stepam character with plugins ordered by priority based on environment variables.
+ * Gets the character from the database.
  *
- * @returns {Character} The Eliza character with appropriate plugins for the current environment
+ * @returns {Promise<Character>} The Stepam character with appropriate plugins for the current environment
  */
-export function getStepanCharacter(): Character {
-  const plugins = [
-    '@elizaos/plugin-sql',
-    ...(process.env.OPENAI_API_KEY ? ['@elizaos/plugin-openai'] : []),
-    ...(!process.env.IGNORE_BOOTSTRAP ? ['@elizaos/plugin-bootstrap'] : []),
-    ...(process.env.TELEGRAM_BOT_TOKEN ? ['@elizaos/plugin-telegram'] : []),
-  ];
+export async function getStepanCharacter(db?: DatabaseAdapter): Promise<Character> {
+  try {
+    logger.info('[StepanCharacter] Starting character initialization');
 
-  return {
-    ...baseCharacter,
-    plugins,
-  } as Character;
+    // Configure database settings
+    const postgresUrl = await configureDatabaseSettings();
+    if (!postgresUrl) {
+      throw new Error('PostgreSQL URL is required but was not provided');
+    }
+    process.env.POSTGRES_URL = postgresUrl;
+
+    // If no database adapter provided, create one through AgentServer
+    let dbAdapter = db;
+    console.log('dbAdapter', dbAdapter);
+    if (!dbAdapter) {
+      const pgliteDataDir = postgresUrl ? undefined : await resolvePgliteDir();
+      const server = new AgentServer();
+      await server.initialize({ dataDir: pgliteDataDir, postgresUrl: postgresUrl || undefined });
+      dbAdapter = (server as any).database as DatabaseAdapter;
+    }
+
+    const isReady = await dbAdapter.isReady();
+    if (!isReady) {
+      throw new Error(
+        'Database is not ready. Please ensure database connection is properly initialized'
+      );
+    }
+
+    // Get agent by name
+    const agent = await dbAdapter.getAgentByName(AGENT_NAME);
+
+    if (!agent) {
+      throw new Error(`Agent ${AGENT_NAME} not found in database`);
+    }
+
+    logger.info('[StepanCharacter] Found agent in runtime');
+
+    // Update plugins based on environment
+    const plugins = [
+      '@elizaos/plugin-sql',
+      '@elizaos/plugin-bootstrap',
+      ...(process.env.OPENAI_API_KEY ? ['@elizaos/plugin-openai'] : []),
+      ...(process.env.TELEGRAM_BOT_TOKEN ? ['@elizaos/plugin-telegram'] : []),
+    ];
+
+    // Return enhanced character with plugins and context
+    return {
+      ...agent,
+      name: agent.name,
+      username: '123',
+      bio: agent.bio || null,
+      system: agent.system || null,
+      style: agent.style || null,
+      topics: agent.topics || null,
+      adjectives: agent.adjectives || null,
+      knowledge: agent.knowledge || null,
+      messageExamples: agent.messageExamples || null,
+      postExamples: agent.postExamples || null,
+      core_readings: agent.core_readings || null,
+      settings: agent.settings,
+      plugins,
+      secrets: {
+        key: process.env.TELEGRAM_BOT_TOKEN || '',
+      },
+    } as Character;
+  } catch (error) {
+    logger.error('[StepanCharacter] Failed to get character:', error);
+    throw error;
+  }
 }
 
-export const character: Character = getStepanCharacter();
+// Initialize character
+let characterPromise: Promise<Character>;
+export const character: Character = await (characterPromise = getStepanCharacter());

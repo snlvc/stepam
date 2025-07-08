@@ -209,6 +209,29 @@ export abstract class BaseDrizzleAdapter extends DatabaseAdapter<any> {
     });
   }
 
+  async getAgentByName(agentName: string): Promise<Agent | null> {
+    return this.withDatabase(async () => {
+      const rows = await this.db
+        .select()
+        .from(agentTable)
+        .where(eq(agentTable.name, agentName))
+        .limit(1);
+
+      if (rows.length === 0) return null;
+
+      const row = rows[0];
+      return {
+        ...row,
+        username: row.username || '',
+        id: row.id as UUID,
+        system: !row.system ? undefined : row.system,
+        bio: !row.bio ? '' : row.bio,
+        createdAt: row.createdAt.getTime(),
+        updatedAt: row.updatedAt.getTime(),
+      };
+    });
+  }
+
   /**
    * Asynchronously retrieves a list of agents from the database.
    *

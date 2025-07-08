@@ -98,6 +98,10 @@ export class PgDatabaseAdapter extends BaseDrizzleAdapter {
     return super.updateAgent(agentId, agent);
   }
 
+  async getAgentByName(agentName: string): Promise<Agent | null> {
+    return super.getAgentByName(agentName);
+  }
+
   deleteAgent(agentId: UUID): Promise<boolean> {
     return super.deleteAgent(agentId);
   }

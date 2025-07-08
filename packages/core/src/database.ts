@@ -482,6 +482,8 @@ export abstract class DatabaseAdapter<DB = unknown> implements IDatabaseAdapter 
    */
   abstract createAgent(agent: Partial<Agent>): Promise<boolean>;
 
+  abstract getAgentByName(name: string): Promise<Agent | null>;
+
   /**
    * Updates an existing agent in the database.
    * @param agentId The UUID of the agent to update.

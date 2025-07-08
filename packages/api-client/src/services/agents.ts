@@ -26,6 +26,10 @@ export class AgentsService extends BaseApiClient {
     return this.get<Agent>(`/api/agents/${agentId}`);
   }
 
+  async getAgentByName(agentName: string): Promise<Agent> {
+    return this.get<Agent>(`/api/agents/name/${agentName}`);
+  }
+
   /**
    * Create a new agent
    */

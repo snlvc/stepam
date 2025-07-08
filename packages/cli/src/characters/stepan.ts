@@ -1,14 +1,22 @@
 // src/characters/stepan.character.ts
 
-import { Character, logger, DatabaseAdapter } from '@elizaos/core';
+import {
+  Character,
+  logger,
+  DatabaseAdapter,
+  Agent,
+  AgentStatus,
+  stringToUuid,
+} from '@elizaos/core';
 import { configureDatabaseSettings, resolvePgliteDir } from '@/src/utils';
 import { AgentServer } from '@elizaos/server';
+import stepanJson from './stepan.json';
 
 const AGENT_NAME = 'stepam'; // Using the name from JSON file
 
 /**
  * Returns the Stepam character with plugins ordered by priority based on environment variables.
- * Gets the character from the database.
+ * Gets the character from the database, falling back to local JSON if not found.
  *
  * @returns {Promise<Character>} The Stepam character with appropriate plugins for the current environment
  */
@@ -41,13 +49,51 @@ export async function getStepanCharacter(db?: DatabaseAdapter): Promise<Characte
     }
 
     // Get agent by name
-    const agent = await dbAdapter.getAgentByName(AGENT_NAME);
+    let agent = await dbAdapter.getAgentByName(AGENT_NAME);
 
+    // If agent not found in database, create it from local JSON file
     if (!agent) {
-      throw new Error(`Agent ${AGENT_NAME} not found in database`);
-    }
+      logger.info('[StepanCharacter] Agent not found in database, creating from local JSON file');
+      const now = Date.now();
+      const agentId = stringToUuid(AGENT_NAME);
+      const newAgent = {
+        ...stepanJson,
+        id: agentId,
+        createdAt: now,
+        updatedAt: now,
+        status: AgentStatus.ACTIVE,
+        enabled: true,
+      } as Agent;
 
-    logger.info('[StepanCharacter] Found agent in runtime');
+      const created = await dbAdapter.createAgent(newAgent);
+      if (!created) {
+        throw new Error('Failed to create agent in database');
+      }
+
+      // Create the agent's entity
+      const entityCreated = await dbAdapter.createEntities([
+        {
+          id: agentId,
+          names: [AGENT_NAME],
+          metadata: {},
+          agentId: agentId,
+        },
+      ]);
+
+      if (!entityCreated) {
+        throw new Error('Failed to create entity for agent');
+      }
+
+      // Fetch the newly created agent
+      agent = await dbAdapter.getAgentByName(AGENT_NAME);
+      if (!agent) {
+        throw new Error('Failed to retrieve newly created agent');
+      }
+
+      logger.info('[StepanCharacter] Successfully created agent and entity in database');
+    } else {
+      logger.info('[StepanCharacter] Found agent in runtime');
+    }
 
     // Update plugins based on environment
     const plugins = [
@@ -61,7 +107,7 @@ export async function getStepanCharacter(db?: DatabaseAdapter): Promise<Characte
     return {
       ...agent,
       name: agent.name,
-      username: '123',
+      username: agent.username || null,
       bio: agent.bio || null,
       system: agent.system || null,
       style: agent.style || null,

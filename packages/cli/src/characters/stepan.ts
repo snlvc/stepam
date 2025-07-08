@@ -50,47 +50,25 @@ export async function getStepanCharacter(db?: DatabaseAdapter): Promise<Characte
 
     // Get agent by name
     let agent = await dbAdapter.getAgentByName(AGENT_NAME);
-
     // If agent not found in database, create it from local JSON file
     if (!agent) {
       logger.info('[StepanCharacter] Agent not found in database, creating from local JSON file');
       const now = Date.now();
-      const agentId = stringToUuid(AGENT_NAME);
       const newAgent = {
         ...stepanJson,
-        id: agentId,
         createdAt: now,
         updatedAt: now,
         status: AgentStatus.ACTIVE,
         enabled: true,
       } as Agent;
 
-      const created = await dbAdapter.createAgent(newAgent);
-      if (!created) {
-        throw new Error('Failed to create agent in database');
-      }
-
-      // Create the agent's entity
-      const entityCreated = await dbAdapter.createEntities([
-        {
-          id: agentId,
-          names: [AGENT_NAME],
-          metadata: {},
-          agentId: agentId,
-        },
-      ]);
-
-      if (!entityCreated) {
-        throw new Error('Failed to create entity for agent');
-      }
-
-      // Fetch the newly created agent
+      await dbAdapter.createAgent(newAgent);
       agent = await dbAdapter.getAgentByName(AGENT_NAME);
       if (!agent) {
         throw new Error('Failed to retrieve newly created agent');
       }
 
-      logger.info('[StepanCharacter] Successfully created agent and entity in database');
+      logger.info('[StepanCharacter] Successfully created agent in database');
     } else {
       logger.info('[StepanCharacter] Found agent in runtime');
     }
@@ -106,6 +84,7 @@ export async function getStepanCharacter(db?: DatabaseAdapter): Promise<Characte
     // Return enhanced character with plugins and context
     return {
       ...agent,
+      id: agent.id, // Use the existing agent ID
       name: agent.name,
       username: agent.username || null,
       bio: agent.bio || null,

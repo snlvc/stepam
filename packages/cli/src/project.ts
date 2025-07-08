@@ -152,7 +152,7 @@ export async function loadProject(dir: string): Promise<Project> {
       const defaultAgent: ProjectAgent = {
         character: {
           ...elizaCharacter,
-          id: stringToUuid(defaultCharacterName) as UUID,
+          id: elizaCharacter.id,
           name: defaultCharacterName,
         },
         init: async () => {

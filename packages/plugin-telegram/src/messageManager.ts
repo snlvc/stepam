@@ -400,7 +400,7 @@ export class MessageManager {
         await this.promptManager.handleManualEdit(ctx, messageText);
         return;
       }
-
+      logger.info('messageText:');
       // Check if this is a prompt update request
       if (this.promptManager.isPromptUpdateRequest(messageText)) {
         logger.info('Handling prompt update request');

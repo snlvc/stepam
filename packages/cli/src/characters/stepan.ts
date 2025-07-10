@@ -17,6 +17,7 @@ export async function getStepanCharacter(db?: DatabaseAdapter): Promise<Characte
   try {
     logger.info('[StepanCharacter] Starting character initialization');
     const postgresUrl = process.env.POSTGRES_URL;
+    console.log('postgresUrl', postgresUrl);
     if (!postgresUrl) {
       throw new Error('PostgreSQL URL is required but was not provided');
     }

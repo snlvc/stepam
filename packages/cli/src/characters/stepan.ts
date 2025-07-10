@@ -1,13 +1,6 @@
 // src/characters/stepan.character.ts
 
-import {
-  Character,
-  logger,
-  DatabaseAdapter,
-  Agent,
-  AgentStatus,
-  stringToUuid,
-} from '@elizaos/core';
+import { Character, logger, DatabaseAdapter, Agent, AgentStatus } from '@elizaos/core';
 import { configureDatabaseSettings, resolvePgliteDir } from '@/src/utils';
 import { AgentServer } from '@elizaos/server';
 import stepanJson from './stepan.json';
@@ -29,6 +22,7 @@ export async function getStepanCharacter(db?: DatabaseAdapter): Promise<Characte
     if (!postgresUrl) {
       throw new Error('PostgreSQL URL is required but was not provided');
     }
+    console.log('env', process.env.POSTGRES_URL);
     process.env.POSTGRES_URL = postgresUrl;
 
     // If no database adapter provided, create one through AgentServer

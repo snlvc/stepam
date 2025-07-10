@@ -3,7 +3,7 @@ module.exports = {
         {
             name: 'stepam',
             script: 'bun',
-            args: 'run start',
+            args: 'start',
             cwd: './packages/cli',
             env: {
                 NODE_ENV: 'production',

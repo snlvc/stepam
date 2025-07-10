@@ -16,11 +16,14 @@ const AGENT_NAME = 'stepam'; // Using the name from JSON file
 export async function getStepanCharacter(db?: DatabaseAdapter): Promise<Character> {
   try {
     logger.info('[StepanCharacter] Starting character initialization');
-    const postgresUrl = process.env.POSTGRES_URL;
-    console.log('postgresUrl', postgresUrl);
+
+    // Configure database settings
+    const postgresUrl = await configureDatabaseSettings();
     if (!postgresUrl) {
       throw new Error('PostgreSQL URL is required but was not provided');
     }
+    console.log('postgresUrl', postgresUrl);
+    process.env.POSTGRES_URL = postgresUrl;
 
     // If no database adapter provided, create one through AgentServer
     let dbAdapter = db;

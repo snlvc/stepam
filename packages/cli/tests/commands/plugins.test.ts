@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 import { safeChangeDirectory, getPlatformOptions } from './test-utils';
 import { TEST_TIMEOUTS } from '../test-timeouts';
 
+const PLUGIN_INSTALLATION_BUFFER = process.platform === 'win32' ? 30000 : 0;
+
 describe('ElizaOS Plugin Commands', () => {
   let testTmpDir: string;
   let projectDir: string;
@@ -104,14 +106,11 @@ describe('ElizaOS Plugin Commands', () => {
     'plugins add installs a plugin',
     async () => {
       try {
-        execSync(
-          `${elizaosCmd} plugins add @elizaos/plugin-xmtp --skip-env-prompt --skip-verification`,
-          {
-            stdio: 'pipe',
-            timeout: TEST_TIMEOUTS.PLUGIN_INSTALLATION,
-            cwd: projectDir,
-          }
-        );
+        execSync(`${elizaosCmd} plugins add @elizaos/plugin-xmtp --skip-env-prompt`, {
+          stdio: 'pipe',
+          timeout: TEST_TIMEOUTS.PLUGIN_INSTALLATION,
+          cwd: projectDir,
+        });
 
         const packageJson = await readFile(join(projectDir, 'package.json'), 'utf8');
         expect(packageJson).toContain('@elizaos/plugin-xmtp');
@@ -122,21 +121,18 @@ describe('ElizaOS Plugin Commands', () => {
         throw error;
       }
     },
-    TEST_TIMEOUTS.INDIVIDUAL_TEST
+    TEST_TIMEOUTS.PLUGIN_INSTALLATION + PLUGIN_INSTALLATION_BUFFER // Add extra buffer for Windows CI
   );
 
   it(
     'plugins install alias works',
     async () => {
       try {
-        execSync(
-          `${elizaosCmd} plugins install @elizaos/plugin-mcp --skip-env-prompt --skip-verification`,
-          {
-            stdio: 'pipe',
-            timeout: TEST_TIMEOUTS.PLUGIN_INSTALLATION,
-            cwd: projectDir,
-          }
-        );
+        execSync(`${elizaosCmd} plugins install @elizaos/plugin-mcp --skip-env-prompt`, {
+          stdio: 'pipe',
+          timeout: TEST_TIMEOUTS.PLUGIN_INSTALLATION,
+          cwd: projectDir,
+        });
 
         const packageJson = await readFile(join(projectDir, 'package.json'), 'utf8');
         expect(packageJson).toContain('@elizaos/plugin-mcp');
@@ -147,21 +143,18 @@ describe('ElizaOS Plugin Commands', () => {
         throw error;
       }
     },
-    TEST_TIMEOUTS.INDIVIDUAL_TEST
+    TEST_TIMEOUTS.PLUGIN_INSTALLATION + PLUGIN_INSTALLATION_BUFFER // Add extra buffer for Windows CI
   );
 
   it(
     'plugins add supports third-party plugins',
     async () => {
       try {
-        execSync(
-          `${elizaosCmd} plugins add @fleek-platform/eliza-plugin-mcp --skip-env-prompt --skip-verification`,
-          {
-            stdio: 'pipe',
-            timeout: TEST_TIMEOUTS.PLUGIN_INSTALLATION,
-            cwd: projectDir,
-          }
-        );
+        execSync(`${elizaosCmd} plugins add @fleek-platform/eliza-plugin-mcp --skip-env-prompt`, {
+          stdio: 'pipe',
+          timeout: TEST_TIMEOUTS.PLUGIN_INSTALLATION,
+          cwd: projectDir,
+        });
 
         const packageJson = await readFile(join(projectDir, 'package.json'), 'utf8');
         expect(packageJson).toContain('@fleek-platform/eliza-plugin-mcp');
@@ -172,7 +165,7 @@ describe('ElizaOS Plugin Commands', () => {
         throw error;
       }
     },
-    TEST_TIMEOUTS.INDIVIDUAL_TEST
+    TEST_TIMEOUTS.PLUGIN_INSTALLATION + PLUGIN_INSTALLATION_BUFFER // Add extra buffer for Windows CI
   );
 
   it(
@@ -181,7 +174,7 @@ describe('ElizaOS Plugin Commands', () => {
       try {
         // First GitHub URL install
         execSync(
-          `${elizaosCmd} plugins add https://github.com/elizaos-plugins/plugin-video-understanding --skip-env-prompt --skip-verification`,
+          `${elizaosCmd} plugins add https://github.com/elizaos-plugins/plugin-video-understanding --skip-env-prompt`,
           {
             stdio: 'pipe',
             timeout: TEST_TIMEOUTS.PLUGIN_INSTALLATION,
@@ -194,7 +187,7 @@ describe('ElizaOS Plugin Commands', () => {
 
         // Second GitHub URL install with shorthand syntax
         execSync(
-          `${elizaosCmd} plugins add github:elizaos-plugins/plugin-openrouter#1.x --skip-env-prompt --skip-verification`,
+          `${elizaosCmd} plugins add github:elizaos-plugins/plugin-openrouter#1.x --skip-env-prompt`,
           {
             stdio: 'pipe',
             timeout: TEST_TIMEOUTS.PLUGIN_INSTALLATION,
@@ -211,7 +204,7 @@ describe('ElizaOS Plugin Commands', () => {
         throw error;
       }
     },
-    TEST_TIMEOUTS.INDIVIDUAL_TEST
+    TEST_TIMEOUTS.PLUGIN_INSTALLATION + PLUGIN_INSTALLATION_BUFFER // Add extra buffer for Windows CI
   );
 
   // installed-plugins list tests
@@ -222,7 +215,7 @@ describe('ElizaOS Plugin Commands', () => {
       // Should show previously installed plugins from other tests
       expect(result).toMatch(/@elizaos\/plugin-|github:/);
     },
-    TEST_TIMEOUTS.INDIVIDUAL_TEST
+    TEST_TIMEOUTS.PLUGIN_INSTALLATION + PLUGIN_INSTALLATION_BUFFER // Add extra buffer for Windows CI
   );
 
   // remove / aliases tests
@@ -230,14 +223,11 @@ describe('ElizaOS Plugin Commands', () => {
     'plugins remove uninstalls a plugin',
     async () => {
       try {
-        execSync(
-          `${elizaosCmd} plugins add @elizaos/plugin-elevenlabs --skip-env-prompt --skip-verification`,
-          {
-            stdio: 'pipe',
-            timeout: TEST_TIMEOUTS.PLUGIN_INSTALLATION,
-            cwd: projectDir,
-          }
-        );
+        execSync(`${elizaosCmd} plugins add @elizaos/plugin-elevenlabs --skip-env-prompt`, {
+          stdio: 'pipe',
+          timeout: TEST_TIMEOUTS.PLUGIN_INSTALLATION,
+          cwd: projectDir,
+        });
 
         let packageJson = await readFile(join(projectDir, 'package.json'), 'utf8');
         expect(packageJson).toContain('@elizaos/plugin-elevenlabs');
@@ -257,7 +247,7 @@ describe('ElizaOS Plugin Commands', () => {
         throw error;
       }
     },
-    TEST_TIMEOUTS.INDIVIDUAL_TEST
+    TEST_TIMEOUTS.PLUGIN_INSTALLATION + PLUGIN_INSTALLATION_BUFFER // Add extra buffer for Windows CI
   );
 
   it(
@@ -272,7 +262,7 @@ describe('ElizaOS Plugin Commands', () => {
 
         // Add all plugins first
         for (const plugin of plugins) {
-          execSync(`${elizaosCmd} plugins add ${plugin} --skip-env-prompt --skip-verification`, {
+          execSync(`${elizaosCmd} plugins add ${plugin} --skip-env-prompt`, {
             stdio: 'pipe',
             timeout: TEST_TIMEOUTS.PLUGIN_INSTALLATION,
             cwd: projectDir,
@@ -300,7 +290,7 @@ describe('ElizaOS Plugin Commands', () => {
         throw error;
       }
     },
-    TEST_TIMEOUTS.INDIVIDUAL_TEST
+    TEST_TIMEOUTS.PLUGIN_INSTALLATION + PLUGIN_INSTALLATION_BUFFER // Add extra buffer for Windows CI
   );
 
   // Negative case tests
@@ -320,7 +310,7 @@ describe('ElizaOS Plugin Commands', () => {
         expect(output).toMatch(/not found in registry/);
       }
     },
-    TEST_TIMEOUTS.INDIVIDUAL_TEST
+    TEST_TIMEOUTS.PLUGIN_INSTALLATION + PLUGIN_INSTALLATION_BUFFER // Add extra buffer for Windows CI
   );
 
   it(
@@ -328,7 +318,7 @@ describe('ElizaOS Plugin Commands', () => {
     async () => {
       try {
         execSync(
-          `${elizaosCmd} plugins add github:elizaos-plugins/plugin-farcaster#1.x --skip-env-prompt --skip-verification`,
+          `${elizaosCmd} plugins add github:elizaos-plugins/plugin-farcaster#1.x --skip-env-prompt`,
           {
             stdio: 'pipe',
             timeout: TEST_TIMEOUTS.PLUGIN_INSTALLATION,
@@ -345,6 +335,6 @@ describe('ElizaOS Plugin Commands', () => {
         throw error;
       }
     },
-    TEST_TIMEOUTS.INDIVIDUAL_TEST
+    TEST_TIMEOUTS.PLUGIN_INSTALLATION + PLUGIN_INSTALLATION_BUFFER // Add extra buffer for Windows CI
   );
 });

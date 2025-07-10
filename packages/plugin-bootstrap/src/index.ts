@@ -1388,6 +1388,7 @@ export const bootstrapPlugin: Plugin = {
     actions.choiceAction,
     actions.updateRoleAction,
     actions.updateSettingsAction,
+    actions.generateImageAction,
   ],
   // this is jank, these events are not valid
   events: events as any as PluginEvents,
@@ -1406,6 +1407,7 @@ export const bootstrapPlugin: Plugin = {
     providers.attachmentsProvider,
     providers.providersProvider,
     providers.actionsProvider,
+    providers.actionStateProvider,
     providers.characterProvider,
     providers.recentMessagesProvider,
     providers.worldProvider,

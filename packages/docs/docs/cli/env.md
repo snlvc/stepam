@@ -115,7 +115,7 @@ System Information:
 
 Local Environment Variables:
 Path: /current/directory/.env
-  OPENAI_API_KEY: sk-1234...5678
+  OPENAI_API_KEY: your-key...5678
   MODEL_PROVIDER: openai
   PORT: 8080
   LOG_LEVEL: debug
@@ -176,6 +176,7 @@ If no local `.env` file exists:
 | `SQLITE_DATA_DIR`    | Directory for PGLite database files          |
 | `MODEL_PROVIDER`     | Default model provider to use                |
 | `LOG_LEVEL`          | Logging verbosity (debug, info, warn, error) |
+| `LOG_TIMESTAMPS`     | Show timestamps in logs (default: true)      |
 | `PORT`               | HTTP API port number                         |
 
 ## Database Configuration Detection

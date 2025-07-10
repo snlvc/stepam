@@ -1,4 +1,5 @@
 import { logger } from '@elizaos/core';
+import { isQuietMode } from './spinner-utils';
 import dotenv from 'dotenv';
 import path from 'node:path';
 import { UserEnvironment } from './user-environment';
@@ -169,7 +170,8 @@ export async function getElizaDirectories(targetProjectDir?: string) {
   });
 
   const defaultElizaDbDir = path.resolve(projectRoot, '.eliza', '.elizadb');
-  const elizaDbDir = await resolvePgliteDir(undefined, defaultElizaDbDir);
+  // Pass targetProjectDir to resolvePgliteDir to ensure it uses the correct base directory
+  const elizaDbDir = await resolvePgliteDir(undefined, defaultElizaDbDir, targetProjectDir);
 
   return { elizaDir, elizaDbDir, envFilePath };
 }
@@ -199,7 +201,9 @@ export async function setupEnvFile(envFilePath: string): Promise<void> {
       // Create the file with template variables
       await fs.writeFile(envFilePath, SAMPLE_ENV_TEMPLATE, 'utf8');
 
-      logger.info(`[Config] Created .env file with template variables at: ${envFilePath}`);
+      if (!isQuietMode()) {
+        logger.info(`[Config] Created .env file with template variables at: ${envFilePath}`);
+      }
     } else {
       // File exists, check if it's empty
       const content = await fs.readFile(envFilePath, 'utf8');
@@ -305,6 +309,10 @@ export async function storePostgresUrl(url: string, envFilePath: string): Promis
   if (!url) return;
 
   try {
+    // Ensure parent directory exists
+    const envDir = path.dirname(envFilePath);
+    await fs.mkdir(envDir, { recursive: true });
+
     // Read existing content first to avoid duplicates
     let content = '';
     if (existsSync(envFilePath)) {

@@ -13,19 +13,17 @@ import type { CreateOptions } from './types';
  * Formats the project type for display in messages
  */
 function formatProjectType(type: string): string {
-  return type === 'tee' ? 'TEE Project' : 
-         type.charAt(0).toUpperCase() + type.slice(1);
+  return type === 'tee' ? 'TEE Project' : type.charAt(0).toUpperCase() + type.slice(1);
 }
 
 export const create = new Command('create')
   .description('Create a new ElizaOS project, plugin, agent, or TEE project')
   .argument('[name]', 'name of the project/plugin/agent to create')
-  .option('--dir <dir>', 'directory to create the project in', '.')
   .option('--yes, -y', 'skip prompts and use defaults')
   .option('--type <type>', 'type of project to create (project, plugin, agent, tee)', 'project')
   .action(async (name?: string, opts?: any) => {
     let projectType: string | undefined; // Declare outside try block for catch access
-    
+
     try {
       // Set non-interactive mode if environment variable is set or if -y/--yes flag is present in process.argv
       if (
@@ -139,16 +137,14 @@ export const create = new Command('create')
         clack.intro(colors.inverse(` Creating ElizaOS ${introType} `));
       }
 
-      const targetDir = options.dir;
-
       // Handle different project types
       switch (projectType) {
         case 'plugin':
-          await createPlugin(projectName!, targetDir, isNonInteractive);
+          await createPlugin(projectName!, process.cwd(), isNonInteractive);
           break;
 
         case 'agent':
-          await createAgent(projectName!, targetDir, isNonInteractive);
+          await createAgent(projectName!, process.cwd(), isNonInteractive);
           break;
 
         case 'tee': {
@@ -169,7 +165,7 @@ export const create = new Command('create')
 
           await createTEEProject(
             projectName!,
-            targetDir,
+            process.cwd(),
             database,
             aiModel,
             embeddingModel,
@@ -197,7 +193,7 @@ export const create = new Command('create')
 
           await createProject(
             projectName!,
-            targetDir,
+            process.cwd(),
             database,
             aiModel,
             embeddingModel,

@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { logger } from '@elizaos/core';
+import { isQuietMode } from './spinner-utils';
 
 // Define __dirname for ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -184,7 +185,9 @@ export async function copyTemplate(
     if (packageJson.dependencies) {
       for (const depName of Object.keys(packageJson.dependencies)) {
         if (depName.startsWith('@elizaos/')) {
-          logger.info(`Setting ${depName} to use version ${cliPackageVersion}`);
+          if (!isQuietMode()) {
+            logger.info(`Setting ${depName} to use version ${cliPackageVersion}`);
+          }
           packageJson.dependencies[depName] = 'latest';
         }
       }
@@ -193,7 +196,9 @@ export async function copyTemplate(
     if (packageJson.devDependencies) {
       for (const depName of Object.keys(packageJson.devDependencies)) {
         if (depName.startsWith('@elizaos/')) {
-          logger.info(`Setting dev dependency ${depName} to use version ${cliPackageVersion}`);
+          if (!isQuietMode()) {
+            logger.info(`Setting dev dependency ${depName} to use version ${cliPackageVersion}`);
+          }
           packageJson.devDependencies[depName] = 'latest';
         }
       }
@@ -204,7 +209,9 @@ export async function copyTemplate(
 
     if (packageJson.name !== projectNameFromPath) {
       packageJson.name = projectNameFromPath;
-      logger.info(`Setting package name to ${projectNameFromPath}`);
+      if (!isQuietMode()) {
+        logger.info(`Setting package name to ${projectNameFromPath}`);
+      }
     }
 
     // Write the updated package.json (dependency versions and plugin name changed)
@@ -256,50 +263,4 @@ async function replacePluginNameInFiles(targetDir: string, pluginName: string): 
   });
 
   await Promise.all(promises);
-}
-
-/**
- * Copy client dist files to the CLI package dist directory
- */
-export async function copyClientDist() {
-  logger.debug('Copying client dist files to CLI package');
-
-  const srcClientDist = path.resolve(process.cwd(), '../client/dist');
-  const destClientDist = path.resolve(process.cwd(), './dist');
-  const indexSrc = path.join(srcClientDist, 'index.html');
-  const indexDest = path.join(destClientDist, 'index.html');
-
-  await fs.mkdir(destClientDist, { recursive: true });
-
-  // Wait specifically for index.html to appear
-  let retries = 0;
-  const maxRetries = 10;
-  const retryDelay = 1000;
-  while (retries < maxRetries) {
-    if (existsSync(indexSrc)) {
-      break;
-    }
-    logger.info(`Waiting for client index.html (attempt ${retries + 1}/${maxRetries})…`);
-    await new Promise((r) => setTimeout(r, retryDelay));
-    retries++;
-  }
-
-  if (!existsSync(indexSrc)) {
-    logger.error(`index.html not found at ${indexSrc} after ${maxRetries} attempts`);
-    logger.error('Client package must be built before CLI package. Run: bun run build:client');
-    throw new Error('Client dist files not found - build the client package first');
-  }
-
-  // Copy everything
-  await copyDir(srcClientDist, destClientDist);
-
-  // Verify it made it into CLI dist
-  if (!existsSync(indexDest)) {
-    logger.error(`index.html missing in CLI dist at ${indexDest}`);
-    throw new Error('Failed to copy client files to CLI dist directory');
-  }
-
-  logger.info('✅ Client files successfully copied to CLI package');
-
-  logger.success('Client dist files copied successfully');
 }

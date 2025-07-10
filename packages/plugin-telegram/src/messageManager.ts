@@ -381,17 +381,30 @@ export class MessageManager {
 
       logger.info('Processing message:', { text: messageText, type: messageType });
 
+      // Check for active edit session
+      const isAiEditMode = await this.runtime.getSetting('is_ai_edit_mode');
+      const isManualEditMode = await this.runtime.getSetting('is_manual_edit_mode');
+      logger.info('Edit mode status:', {
+        is_ai_edit_mode: isAiEditMode,
+        is_manual_edit_mode: isManualEditMode,
+      });
+
+      if (isAiEditMode) {
+        logger.info('Handling AI-assisted prompt editing');
+        // Handle AI-assisted prompt editing
+        await this.promptManager.handleAiPromptUpdate(ctx, messageText);
+        return;
+      } else if (isManualEditMode) {
+        logger.info('Handling manual prompt editing');
+        // Handle manual prompt editing
+        await this.promptManager.handleManualEdit(ctx, messageText);
+        return;
+      }
+
       // Check if this is a prompt update request
       if (this.promptManager.isPromptUpdateRequest(messageText)) {
         logger.info('Handling prompt update request');
         await this.promptManager.handlePromptUpdate(ctx);
-        return;
-      }
-
-      // Check if this is an edited prompt
-      if (messageText.startsWith('EDIT:')) {
-        logger.info('Handling edited prompt');
-        await this.promptManager.handleEditedPrompt(ctx, messageText);
         return;
       }
 
@@ -560,7 +573,8 @@ export class MessageManager {
         data.startsWith('apply_prompt:') ||
         data === 'dismiss_prompt' ||
         data.startsWith('edit_prompt:') ||
-        data === 'another_prompt'
+        data === 'another_prompt' ||
+        data.startsWith('ai_edit_prompt:')
       ) {
         await this.promptManager.handlePromptCallback(ctx);
         return;

@@ -390,25 +390,18 @@ export class MessageManager {
       });
 
       if (isAiEditMode) {
-        logger.info('Handling AI-assisted prompt editing');
-        // Handle AI-assisted prompt editing
         await this.promptManager.handleAiPromptUpdate(ctx, messageText);
         return;
       } else if (isManualEditMode) {
-        logger.info('Handling manual prompt editing');
-        // Handle manual prompt editing
         await this.promptManager.handleManualEdit(ctx, messageText);
         return;
       }
-      logger.info('messageText:');
-      // Check if this is a prompt update request
+
       if (this.promptManager.isPromptUpdateRequest(messageText)) {
-        logger.info('Handling prompt update request');
         await this.promptManager.handlePromptUpdate(ctx);
         return;
       }
 
-      // Convert IDs to UUIDs
       const entityId = createUniqueUuid(this.runtime, ctx.from.id.toString()) as UUID;
 
       const threadId =
@@ -416,26 +409,20 @@ export class MessageManager {
           ? message.message_thread_id?.toString()
           : undefined;
 
-      // Add null check for ctx.chat
       if (!ctx.chat) {
         logger.error('handleMessage: ctx.chat is undefined');
         return;
       }
-      // Generate room ID based on whether this is in a forum topic
       const telegramRoomid = threadId ? `${ctx.chat.id}-${threadId}` : ctx.chat.id.toString();
       const roomId = createUniqueUuid(this.runtime, telegramRoomid) as UUID;
 
-      // Get message ID (unique to channel)
       const messageId = createUniqueUuid(this.runtime, message?.message_id?.toString());
 
-      // Handle images
       const imageInfo = await this.processImage(message);
 
-      // Combine text and image description
       const fullText = imageInfo ? `${messageText} ${imageInfo.description}` : messageText;
       if (!fullText) return;
 
-      // Get chat type and determine channel type
       const chat = message.chat as Chat;
       const channelType = getChannelType(chat);
 
@@ -452,7 +439,6 @@ export class MessageManager {
         worldName: telegramRoomid,
       });
 
-      // Create the memory object
       const memory: Memory = {
         id: messageId,
         entityId,
@@ -477,10 +463,8 @@ export class MessageManager {
         createdAt: message.date * 1000,
       };
 
-      // Create callback for handling responses
       const callback: HandlerCallback = async (content: Content, _files?: string[]) => {
         try {
-          // If response is from reasoning do not send it.
           if (!content.text) return [];
 
           let sentMessages: boolean | Message.TextMessage[] = false;

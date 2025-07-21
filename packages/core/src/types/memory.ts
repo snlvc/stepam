@@ -20,6 +20,9 @@ export enum MemoryType {
   MESSAGE = 'message',
   DESCRIPTION = 'description',
   CUSTOM = 'custom',
+
+  WEEKLY_SUMMARY = 'weekly_summary',
+  MONTHLY_SUMMARY = 'monthly_summary',
 }
 /**
  * Defines the scope of a memory, indicating its visibility and accessibility.

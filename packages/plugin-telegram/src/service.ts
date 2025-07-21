@@ -980,4 +980,30 @@ export class TelegramService extends Service {
       throw error;
     }
   }
+  public async sendFormattedSummary(
+    summary: string,
+    type: string,
+    chatId?: string | number
+  ): Promise<void> {
+    try {
+      // If no chatId provided, try to get it from settings
+      const targetChatId = chatId || this.runtime.getSetting('TELEGRAM_CHAT_ID');
+      if (!targetChatId) {
+        throw new Error(
+          'No target chat ID provided or found in settings. Please set TELEGRAM_CHAT_ID in settings or provide it as a parameter.'
+        );
+      }
+
+      const formattedMessage = {
+        text: `📊 ${summary}`,
+        source: 'telegram',
+      };
+
+      await this.messageManager.sendMessage(targetChatId, formattedMessage);
+      logger.info(`Summary sent to Telegram chat ${targetChatId}`);
+    } catch (error) {
+      logger.error('Error sending formatted summary to Telegram:', error);
+      throw error;
+    }
+  }
 }

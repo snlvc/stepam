@@ -39,6 +39,7 @@ import * as evaluators from './evaluators/index.ts';
 import * as providers from './providers/index.ts';
 
 import { TaskService } from './services/task.ts';
+import { MemorySummaryManager } from './cron/memory-summaries';
 
 export * from './actions/index.ts';
 export * from './evaluators/index.ts';
@@ -1412,7 +1413,7 @@ export const bootstrapPlugin: Plugin = {
     providers.recentMessagesProvider,
     providers.worldProvider,
   ],
-  services: [TaskService],
+  services: [TaskService, MemorySummaryManager],
 };
 
 export default bootstrapPlugin;

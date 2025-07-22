@@ -475,7 +475,7 @@ const messageReceivedHandler = async ({
         console.log('shouldSkipShouldRespond', shouldSkipShouldRespond);
 
         if (shouldRespond) {
-          state = await runtime.composeState(message, ['ACTIONS']);
+          state = await runtime.composeState(message, ['CHARACTER', 'ACTIONS']);
           if (!state.values.actionNames) {
             logger.warn('actionNames data missing from state, even though it was requested');
           }
@@ -485,6 +485,21 @@ const messageReceivedHandler = async ({
             template: runtime.character.templates?.messageHandlerTemplate || messageHandlerTemplate,
           });
 
+          // DEBUG: Log system prompt and character info
+          console.log('[DEBUG] === SYSTEM PROMPT DEBUG ===');
+          console.log('[DEBUG] Character name:', runtime.character.name);
+          console.log('[DEBUG] Character system prompt:', runtime.character.system);
+          console.log(
+            '[DEBUG] State includes CHARACTER provider:',
+            state.text?.includes(runtime.character.system || '')
+          );
+          console.log(
+            '[DEBUG] State providers text preview:',
+            state.text?.substring(0, 300) + '...'
+          );
+          console.log('[DEBUG] Final composed prompt preview:', prompt.substring(0, 500) + '...');
+          console.log('[DEBUG] === END SYSTEM PROMPT DEBUG ===');
+
           let responseContent: Content | null = null;
 
           // Retry if missing required fields
@@ -492,7 +507,7 @@ const messageReceivedHandler = async ({
           const maxRetries = 3;
 
           while (retries < maxRetries && (!responseContent?.thought || !responseContent?.actions)) {
-            let response = await runtime.useModel(ModelType.TEXT_LARGE, {
+            let response = await runtime.useModel(ModelType.TEXT_SMALL, {
               prompt,
             });
 

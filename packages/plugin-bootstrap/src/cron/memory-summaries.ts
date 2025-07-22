@@ -337,33 +337,57 @@ export class MemorySummaryManager extends Service {
       const language = await this.detectLanguage(memories);
       logger.info(`[MemorySummaryManager] Detected language: ${language}`);
 
+      // Calculate date range
+      const now = new Date();
+      const daysToSubtract = type === MemoryType.WEEKLY_SUMMARY ? 7 : 30;
+      const startDate = new Date(now.getTime() - daysToSubtract * 24 * 60 * 60 * 1000);
+
+      // Format dates based on language
+      const formatDate = (date: Date, lang: string) => {
+        if (lang === 'russian') {
+          return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+        }
+        return date.toLocaleDateString('en-US', { day: 'numeric', month: 'long' });
+      };
+
+      const dateRange = `${formatDate(startDate, language)} – ${formatDate(now, language)}`;
+
+      const summaryTypeHeader =
+        type === MemoryType.WEEKLY_SUMMARY
+          ? language === 'russian'
+            ? 'Еженедельный обзор'
+            : 'Weekly Review'
+          : language === 'russian'
+            ? 'Ежемесячный обзор'
+            : 'Monthly Review';
+
       const prompt = `
-        Based on the user’s personal memories listed below, generate a structured and insightful weekly (or monthly) summary.
+        Based on the user's personal memories listed below, generate a structured and insightful ${type === MemoryType.WEEKLY_SUMMARY ? 'weekly' : 'monthly'} summary.
 
         ✅ Important:
-        – Identify the dominant language of the memories (e.g., Russian or English).
-        – Write the summary entirely in that same language.
+        – Write the summary entirely in ${language}.
         – Maintain a coaching-style structure and a grounded, reflective tone.
 
         ✅ Format:
 
-        🚀 Headline: A short, emotionally resonant title that captures the theme of the week (e.g., “От перегрузки к новому импульсу” or “From Burnout to Clarity”).
+        ${summaryTypeHeader}
+        ${dateRange}
 
-        Date Range: For example, “14–20 июля” or “July 14–20”, depending on the memory language.
+        🚀 Headline: A short, emotionally resonant title that captures the theme of the ${type === MemoryType.WEEKLY_SUMMARY ? 'week' : 'month'}.
 
         Overview: A clear and concise paragraph summarizing key emotional themes, decisions, challenges, breakthroughs, or focus areas. Stay grounded, not abstract.
 
-        Insights
-        — Include 2–3 short reflections or takeaways in the second person (“ты” or “you”), such as mindset shifts, inner discoveries, or behavioral insights.
+        Key ${type === MemoryType.WEEKLY_SUMMARY ? 'Weekly' : 'Monthly'} Insights
+        — Include ${type === MemoryType.WEEKLY_SUMMARY ? '2-3' : '3-5'} short reflections or takeaways in the second person ("ты" or "you"), such as mindset shifts, inner discoveries, or behavioral insights.
 
-        Weekly Wins
-        — 2–3 concrete wins (personal or professional) from the week. Highlight progress, not perfection.
+        ${type === MemoryType.WEEKLY_SUMMARY ? 'Weekly' : 'Monthly'} Wins
+        — ${type === MemoryType.WEEKLY_SUMMARY ? '2-3' : '3-5'} concrete wins (personal or professional). Highlight progress, not perfection.
 
         ✅ Guidelines:
-        – Use the dominant language of the memories.
         – Use clear and accessible language (no academic or poetic overload).
         – Avoid generic advice. Ground each insight in the themes reflected in the memories.
         – Weave fragmented memories into a coherent narrative if needed.
+        ${type === MemoryType.MONTHLY_SUMMARY ? '– Look for longer-term patterns and growth trends across the month.' : ''}
 
         Here are the memories:
         ${memoryTexts}

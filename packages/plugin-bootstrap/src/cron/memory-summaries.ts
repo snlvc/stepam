@@ -38,12 +38,6 @@ export class MemorySummaryManager extends Service {
     }
     await this.startCronJobs();
 
-    // Delay summary generation to allow other services to load
-    setTimeout(async () => {
-      logger.info('[MemorySummaryManager] Running delayed summary generation...');
-      await this.generateSummariesNow();
-    }, 5000); // Wait 5 seconds for other services to initialize
-
     logger.info('[MemorySummaryManager] Service initialized successfully');
   }
 

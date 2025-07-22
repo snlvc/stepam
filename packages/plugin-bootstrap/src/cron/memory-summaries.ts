@@ -37,8 +37,13 @@ export class MemorySummaryManager extends Service {
       throw new Error('[MemorySummaryManager] Runtime not set during initialization');
     }
     await this.startCronJobs();
-    // Immediately generate summaries on startup
-    await this.generateSummariesNow();
+
+    // Delay summary generation to allow other services to load
+    setTimeout(async () => {
+      logger.info('[MemorySummaryManager] Running delayed summary generation...');
+      await this.generateSummariesNow();
+    }, 5000); // Wait 5 seconds for other services to initialize
+
     logger.info('[MemorySummaryManager] Service initialized successfully');
   }
 

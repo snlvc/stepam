@@ -31,6 +31,7 @@ export interface ServiceTypeRegistry {
   PLUGIN_MANAGER: 'PLUGIN_MANAGER';
   PLUGIN_CONFIGURATION: 'PLUGIN_CONFIGURATION';
   PLUGIN_USER_INTERACTION: 'PLUGIN_USER_INTERACTION';
+  MEMORY_SUMMARY: 'memory_summary';
 }
 
 /**
@@ -101,6 +102,7 @@ export const ServiceType = {
   PLUGIN_MANAGER: 'PLUGIN_MANAGER',
   PLUGIN_CONFIGURATION: 'PLUGIN_CONFIGURATION',
   PLUGIN_USER_INTERACTION: 'PLUGIN_USER_INTERACTION',
+  MEMORY_SUMMARY: 'memory_summary',
 } as const satisfies ServiceTypeRegistry;
 
 /**

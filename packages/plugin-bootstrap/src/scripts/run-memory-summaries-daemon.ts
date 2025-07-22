@@ -76,6 +76,15 @@ async function startMemorySummariesDaemon() {
     const memorySummaryManager = await MemorySummaryManager.start(runtime);
     console.log('MemorySummaryManager service started successfully.');
 
+    // Test manual summary generation
+    console.log('\n--- Testing Manual Summary Generation ---');
+    try {
+      await (memorySummaryManager as MemorySummaryManager).generateSummariesNow();
+      console.log('✅ Manual summary generation test completed successfully!');
+    } catch (error) {
+      console.error('❌ Manual summary generation test failed:', error);
+    }
+
     // Handle process termination
     process.on('SIGTERM', async () => {
       console.log('Received SIGTERM signal. Shutting down...');

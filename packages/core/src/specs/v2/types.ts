@@ -120,6 +120,7 @@ export interface ServiceTypeRegistry {
   EMAIL: 'email';
   TEE: 'tee';
   TASK: 'task';
+  MEMORY_SUMMARY: 'memory_summary';
 }
 
 /**
@@ -183,6 +184,7 @@ export const ServiceType = {
   EMAIL: 'email',
   TEE: 'tee',
   TASK: 'task',
+  MEMORY_SUMMARY: 'memory_summary',
 } as const satisfies ServiceTypeRegistry;
 
 /**

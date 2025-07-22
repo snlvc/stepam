@@ -6,19 +6,13 @@ import {
   logger,
   ModelType,
   Service,
+  ServiceType,
   createUniqueUuid,
   ChannelType,
 } from '@elizaos/core';
 import type { ScheduledTask } from 'node-cron';
 import cron from 'node-cron';
 import { MemoryType } from '@elizaos/core';
-
-// Add MEMORY_SUMMARY to ServiceType
-declare module '@elizaos/core' {
-  export interface ServiceTypeRegistry {
-    MEMORY_SUMMARY: 'memory_summary';
-  }
-}
 
 /**
  * Service that generates weekly and monthly summaries of agent memories

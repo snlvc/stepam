@@ -512,10 +512,12 @@ const messageReceivedHandler = async ({
             });
 
             logger.debug('[Bootstrap] *** Raw LLM Response ***\n', response);
+            console.log('[Bootstrap] *** Raw LLM Response ***\n', response);
 
             // Attempt to parse the XML response
             const parsedXml = parseKeyValueXml(response);
             logger.debug('[Bootstrap] *** Parsed XML Content ***\n', parsedXml);
+            console.log('[Bootstrap] *** Parsed XML Content ***\n', parsedXml);
 
             // Map parsed XML to Content type, handling potential missing fields
             if (parsedXml) {
@@ -916,7 +918,7 @@ const postGeneratedHandler = async ({
   });
 
   // Use TEXT_LARGE model as we expect structured XML text, not a JSON object
-  const xmlResponseText = await runtime.useModel(ModelType.TEXT_LARGE, {
+  const xmlResponseText = await runtime.useModel(ModelType.TEXT_SMALL, {
     prompt: postPrompt,
   });
 

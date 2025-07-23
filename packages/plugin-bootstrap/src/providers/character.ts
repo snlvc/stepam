@@ -36,6 +36,7 @@ export const characterProvider: Provider = {
 
     // System prompt
     const system = character.system ?? '';
+    const systemSection = addHeader(`# Character System`, system);
 
     // Select random topic if available
     const topicString =
@@ -195,7 +196,15 @@ export const characterProvider: Provider = {
       : '';
     const adjectiveSentence = adjectiveString ? `${character.name} is ${adjectiveString}` : '';
     // Combine all text sections
-    const text = [bio, adjectiveSentence, topicSentence, topics, directions, examples, system]
+    const text = [
+      systemSection,
+      bio,
+      adjectiveSentence,
+      topicSentence,
+      topics,
+      directions,
+      examples,
+    ]
       .filter(Boolean)
       .join('\n\n');
 

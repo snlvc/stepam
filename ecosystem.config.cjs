@@ -1,7 +1,7 @@
 module.exports = {
     apps: [
         {
-            name: 'stepam',
+            name: 'eliza',
             cwd: '/root/stepam',
             script: 'bun',
             args: 'start',
@@ -12,7 +12,9 @@ module.exports = {
             watch: false,
             env: {
                 NODE_ENV: 'production'
-            }
+            },
+            // Add pre-start build command
+            pre_start: 'bun run build'
         }
     ]
 };

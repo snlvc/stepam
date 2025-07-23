@@ -489,15 +489,8 @@ const messageReceivedHandler = async ({
           console.log('[DEBUG] === SYSTEM PROMPT DEBUG ===');
           console.log('[DEBUG] Character name:', runtime.character.name);
           console.log('[DEBUG] Character system prompt:', runtime.character.system);
-          console.log(
-            '[DEBUG] State includes CHARACTER provider:',
-            state.text?.includes(runtime.character.system || '')
-          );
-          console.log(
-            '[DEBUG] State providers text preview:',
-            state.text?.substring(0, 300) + '...'
-          );
-          console.log('[DEBUG] Final composed prompt preview:', prompt.substring(0, 500) + '...');
+          console.log('[DEBUG] State:', state);
+          console.log('[DEBUG] Final composed prompt preview:', prompt);
           console.log('[DEBUG] === END SYSTEM PROMPT DEBUG ===');
 
           let responseContent: Content | null = null;

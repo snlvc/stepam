@@ -364,7 +364,7 @@ export class MessageManager {
         const args = message.text.split(' ').slice(1);
 
         switch (command) {
-          case '/post':
+          case '/generate_post':
             await this.handleThemesCommand(ctx, args);
             return;
           // Add other commands here if needed

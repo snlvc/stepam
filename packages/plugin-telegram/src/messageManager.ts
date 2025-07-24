@@ -25,6 +25,7 @@ import {
 } from './types';
 import { convertToTelegramButtons, convertMarkdownToTelegram } from './utils';
 import { PromptManager } from './promptManager';
+import { PostManager } from './services/postManager';
 
 import fs from 'node:fs';
 
@@ -65,6 +66,7 @@ export class MessageManager {
   public bot: Telegraf<Context>;
   protected runtime: IAgentRuntime;
   private promptManager: PromptManager;
+  private postManager: PostManager;
 
   /**
    * Constructor for creating a new instance of a BotAgent.
@@ -76,6 +78,7 @@ export class MessageManager {
     this.bot = bot;
     this.runtime = runtime;
     this.promptManager = new PromptManager(runtime);
+    this.postManager = new PostManager(runtime);
   }
 
   // Process image messages and generate descriptions
@@ -355,6 +358,19 @@ export class MessageManager {
       if (!ctx.message || !ctx.from) return;
       const message = ctx.message;
 
+      // Check for commands first
+      if ('text' in message && message.text?.startsWith('/')) {
+        const command = message.text.split(' ')[0].toLowerCase();
+        const args = message.text.split(' ').slice(1);
+
+        switch (command) {
+          case '/post':
+            await this.handleThemesCommand(ctx, args);
+            return;
+          // Add other commands here if needed
+        }
+      }
+
       let messageText = '';
       let messageType = 'text';
 
@@ -381,19 +397,30 @@ export class MessageManager {
 
       logger.info('Processing message:', { text: messageText, type: messageType });
 
-      // Check for active edit session
-      const isAiEditMode = await this.runtime.getSetting('is_ai_edit_mode');
-      const isManualEditMode = await this.runtime.getSetting('is_manual_edit_mode');
+      // Check for active edit session from both managers
+      const promptEditMode = await this.promptManager.isInEditMode();
+      const postEditMode = await this.postManager.isInEditMode();
+
       logger.info('Edit mode status:', {
-        is_ai_edit_mode: isAiEditMode,
-        is_manual_edit_mode: isManualEditMode,
+        prompt: promptEditMode,
+        post: postEditMode,
       });
 
-      if (isAiEditMode) {
+      // Handle prompt editing modes
+      if (promptEditMode.isAI) {
         await this.promptManager.handleAiPromptUpdate(ctx, messageText);
         return;
-      } else if (isManualEditMode) {
+      } else if (promptEditMode.isManual) {
         await this.promptManager.handleManualEdit(ctx, messageText);
+        return;
+      }
+
+      // Handle post editing modes
+      if (postEditMode.isAI) {
+        await this.postManager.handleAiPostEdit(ctx, messageText);
+        return;
+      } else if (postEditMode.isManual) {
+        await this.postManager.handleManualPostEdit(ctx, messageText);
         return;
       }
 
@@ -552,22 +579,169 @@ export class MessageManager {
       const data = 'data' in ctx.callbackQuery ? ctx.callbackQuery.data : null;
       if (!data) return;
 
-      // Check if this is a prompt-related callback
+      logger.info('[MessageManager] Handling callback query:', { data });
+
+      // Check for post-related callbacks (both old and new patterns)
+      if (
+        data.startsWith('publish_post:') ||
+        data.startsWith('apply_post:') ||
+        data.startsWith('edit_post:') ||
+        data.startsWith('ai_edit_post:') ||
+        data === 'regenerate_post' ||
+        data === 'cancel_post'
+      ) {
+        await this.postManager.handlePostCallback(ctx);
+        return;
+      }
+
+      // Check for prompt-related callbacks (both old and new patterns)
       if (
         data.startsWith('apply_prompt:') ||
-        data === 'dismiss_prompt' ||
         data.startsWith('edit_prompt:') ||
+        data.startsWith('ai_edit_prompt:') ||
+        data === 'dismiss_prompt' ||
+        data === 'cancel_prompt' ||
         data === 'another_prompt' ||
-        data.startsWith('ai_edit_prompt:')
+        data === 'regenerate_prompt'
       ) {
         await this.promptManager.handlePromptCallback(ctx);
         return;
       }
 
-      // Handle other callback queries here if needed
+      // Handle theme selection callbacks
+      if (data.startsWith('theme_')) {
+        await this.handleThemeButtonSelection(ctx, data);
+        return;
+      }
+
+      // Log unhandled callback for debugging
+      logger.warn('[MessageManager] Unhandled callback query:', { data });
+      await ctx.answerCbQuery('Callback not recognized');
     } catch (error) {
       logger.error('Error handling callback query:', error);
       await ctx.reply('Sorry, I encountered an error while processing your request.');
+    }
+  }
+
+  /**
+   * Handles numbered theme button selection (theme_1, theme_2, etc.)
+   */
+  private async handleThemeButtonSelection(ctx: Context, data: string): Promise<void> {
+    try {
+      const themeNumber = parseInt(data.replace('theme_', ''));
+
+      if (isNaN(themeNumber)) {
+        await ctx.answerCbQuery('❌ Неверный номер темы.');
+        return;
+      }
+
+      const pendingThemesJson = await this.runtime.getSetting('pending_themes');
+      if (!pendingThemesJson) {
+        await ctx.answerCbQuery(
+          '❌ Нет активного выбора тем. Используйте `/themes` для создания нового списка.'
+        );
+        return;
+      }
+
+      const themes: string[] = JSON.parse(pendingThemesJson);
+
+      if (themeNumber < 1 || themeNumber > themes.length) {
+        await ctx.answerCbQuery(`❌ Неверный номер темы. Выберите от 1 до ${themes.length}.`);
+        return;
+      }
+
+      const selectedTheme = themes[themeNumber - 1]; // Convert to 0-based index
+
+      logger.info('[MessageManager] Theme selected:', { themeNumber, selectedTheme });
+
+      // Store theme settings before generating post
+      await this.runtime.setSetting('current_post_theme', selectedTheme);
+      await this.runtime.setSetting('current_post_style', 'honest, without poetry');
+      await this.runtime.setSetting('current_post_format', 'short_post');
+
+      // Clear pending themes list since selection is done
+      await this.runtime.setSetting('pending_themes', null);
+
+      await ctx.answerCbQuery(`Создаю пост на тему: "${selectedTheme}"`);
+
+      // Remove the inline keyboard
+      if (ctx.callbackQuery?.message && 'reply_markup' in ctx.callbackQuery.message) {
+        try {
+          await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+          logger.info('[MessageManager] Keyboard removed successfully');
+        } catch (error) {
+          logger.error('[MessageManager] Error removing keyboard:', error);
+        }
+      }
+
+      // Generate the themed post
+      logger.info('[MessageManager] Starting post generation for theme:', selectedTheme);
+      await this.postManager.generatePostByTheme(ctx, selectedTheme);
+      logger.info('[MessageManager] Post generation completed');
+    } catch (error) {
+      logger.error('[MessageManager] Error handling theme button selection:', error);
+      await ctx.reply('❌ Произошла ошибка при выборе темы.');
+
+      // Clear theme selection state on error
+      await this.runtime.setSetting('pending_themes', null);
+    }
+  }
+
+  /**
+   * Handles /themes command to extract and display themes from memory
+   */
+  private async handleThemesCommand(ctx: Context, args: string[]): Promise<void> {
+    try {
+      const days = args.length > 0 ? parseInt(args[0]) : 7;
+      const maxThemes = args.length > 1 ? parseInt(args[1]) : 4;
+
+      if (isNaN(days) || days < 1 || days > 30) {
+        await ctx.reply(
+          '❌ Неверное количество дней. Используйте от 1 до 30.\nПример: `/themes 7 4`'
+        );
+        return;
+      }
+
+      if (isNaN(maxThemes) || maxThemes < 2 || maxThemes > 8) {
+        await ctx.reply(
+          '❌ Неверное количество тем. Используйте от 2 до 8.\nПример: `/themes 7 4`'
+        );
+        return;
+      }
+
+      await ctx.reply(`🔍 Анализирую темы за последние ${days} дней...`);
+
+      const themes = await this.postManager.getThemesFromMemory(days, maxThemes);
+
+      if (themes.length === 0) {
+        await ctx.reply('😔 Не удалось найти темы в ваших недавних сообщениях.');
+        return;
+      }
+
+      // Store themes temporarily for button callbacks
+      await this.runtime.setSetting('pending_themes', JSON.stringify(themes));
+
+      // Create numbered text list for display
+      const themesList = themes.map((theme, index) => `${index + 1}. ${theme}`).join('\n\n');
+
+      // Create numbered buttons in one row
+      const themeButtons = [
+        themes.map((_, index) => ({
+          text: `${index + 1}`,
+          callback_data: `theme_${index + 1}`,
+        })),
+      ];
+
+      await ctx.reply(
+        `🎨 **Найденные темы за ${days} дней:**\n\n${themesList}\n\n👆 Нажмите номер темы для создания поста:`,
+        {
+          reply_markup: { inline_keyboard: themeButtons },
+          parse_mode: 'Markdown',
+        }
+      );
+    } catch (error) {
+      logger.error('[MessageManager] Error handling themes command:', error);
+      await ctx.reply('❌ Произошла ошибка при анализе тем.');
     }
   }
 

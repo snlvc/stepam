@@ -1,12 +1,9 @@
 import {
   type IAgentRuntime,
   type Memory,
-  type MemoryMetadata,
-  type UUID,
   logger,
   ModelType,
   Service,
-  ServiceType,
   createUniqueUuid,
   ChannelType,
 } from '@elizaos/core';
@@ -402,11 +399,7 @@ export class MemorySummaryManager extends Service {
   /**
    * Send summary notification to Telegram
    */
-  private async sendTelegramNotification(
-    summary: string,
-    type: string,
-    memories: Memory[]
-  ): Promise<void> {
+  private async sendTelegramNotification(summary: string, memories: Memory[]): Promise<void> {
     try {
       logger.info('[MemorySummaryManager] Getting Telegram service...');
       const telegramService = this.runtime.getService('telegram') as any;
@@ -496,7 +489,7 @@ export class MemorySummaryManager extends Service {
       logger.info(`[MemorySummaryManager] ${type} summary saved successfully in room ${roomId}`);
 
       // Send to Telegram
-      await this.sendTelegramNotification(summary, type, memories);
+      await this.sendTelegramNotification(summary, memories);
     } catch (error) {
       logger.error('[MemorySummaryManager] Error saving summary:', error);
       throw error;

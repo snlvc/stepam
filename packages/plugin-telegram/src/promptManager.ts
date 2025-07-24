@@ -10,7 +10,7 @@ import {
 } from '@elizaos/core';
 import type { Context } from 'telegraf';
 import { Markup } from 'telegraf';
-import crypto from 'crypto';
+import { ContentEditManager, EditConfig } from './services/contentEditManager';
 
 interface MessageMetadata extends CustomMetadata {
   type: MemoryType.MESSAGE;
@@ -23,25 +23,88 @@ interface MessageMetadata extends CustomMetadata {
 
 export class PromptManager {
   private runtime: IAgentRuntime;
+  private editManager: ContentEditManager;
+  private promptEditConfig: EditConfig;
   private readonly promptUpdateTriggers = [
+    '/update_prompt',
     'update your prompt',
+    'Update your prompt',
     'change your character',
+    'Change your character',
     'update your character',
+    'Update your character',
     'change your prompt',
     'давай изменим промпт',
+    'Давай изменим промпт',
     'давай изменим персонаж',
+    'Давай изменим персонаж',
     'давай изменим характер',
+    'Давай изменим характер',
     'давай изменим твою роль',
+    'Давай изменим твою роль',
     'давай изменим твой промпт',
+    'Давай изменим твой промпт',
     'давай изменим твой характер',
+    'Давай изменим твой характер',
     'давай изменим твой персонаж',
+    'Давай изменим твой персонаж',
     "let's update your prompt",
+    "Let's update your prompt",
     'send comment',
+    'Send comment',
     'update prompt',
+    'Update prompt',
+    'update character',
+    'Update character',
+    'update role',
+    'Update role',
+    'update system',
+    'Update system',
+    'update system prompt',
+    'Update system prompt',
+    'update system character',
+    'Update system character',
+    'update system role',
+    'Update system role',
+    'update system prompt',
+    'Update system prompt',
   ].map((trigger) => trigger.toLowerCase());
 
   constructor(runtime: IAgentRuntime) {
     this.runtime = runtime;
+    this.editManager = new ContentEditManager(runtime);
+
+    // Configure prompt editing settings
+    this.promptEditConfig = {
+      contentType: 'prompt',
+      storagePrefix: 'prompt_suggestion',
+      draftKey: 'prompt_draft',
+      aiEditModeKey: 'is_ai_edit_mode',
+      manualEditModeKey: 'is_manual_edit_mode',
+      modelType: 'TEXT_LARGE',
+      buttons: {
+        apply: '✅ Apply',
+        cancel: '❌ Dismiss',
+        editManual: '✏️ Edit manually',
+        editAI: '🤖 Edit with AI',
+        regenerate: '🔄 Another',
+      },
+      messages: {
+        noActiveDraft:
+          'Sorry, there is no active prompt editing session. Please start a new prompt update.',
+        aiEditActivated: 'AI edit mode activated',
+        manualEditActivated: 'Manual edit mode activated',
+        aiEditInstructions:
+          '🤖 *AI Edit Mode*\n\nYou can now send me instructions to modify specific parts of the prompt. For example:\n- "Remove the part about English language"\n- "Make it sound more neutral"\n- "Soften the tone a bit"\n\nCurrent prompt:',
+        manualEditInstructions:
+          "✏️ *Manual Edit Mode*\n\nHere's the current prompt. Send me your complete edited version:",
+        editResult: "I've updated the prompt based on your request. Here's the new version:",
+        manualEditResult: "Here's your edited version of the prompt. Would you like to apply it?",
+        expired: 'Sorry, the suggestion has expired. Please request a new prompt update.',
+        error: 'Sorry, I encountered an error while updating the prompt.',
+      },
+    };
+
     logger.info('[PromptManager] Initialized');
   }
 
@@ -51,6 +114,27 @@ export class PromptManager {
     );
     logger.info(`[PromptManager] Checking if "${text}" is a prompt update request: ${isUpdate}`);
     return isUpdate;
+  }
+
+  /**
+   * Handles AI-assisted prompt editing based on user instructions
+   */
+  public async handleAiPromptUpdate(ctx: Context, userInput: string): Promise<void> {
+    return this.editManager.handleAiEdit(ctx, userInput, this.promptEditConfig);
+  }
+
+  /**
+   * Handles manual prompt editing
+   */
+  public async handleManualEdit(ctx: Context, newPrompt: string): Promise<void> {
+    return this.editManager.handleManualEdit(ctx, newPrompt, this.promptEditConfig);
+  }
+
+  /**
+   * Checks if prompt is in edit mode
+   */
+  public async isInEditMode(): Promise<{ isManual: boolean; isAI: boolean }> {
+    return this.editManager.isInEditMode(this.promptEditConfig);
   }
 
   private async generatePromptSuggestion(): Promise<string> {
@@ -133,7 +217,7 @@ Based on this context and these facts, suggest an improved system prompt that wo
         userLength: userPrompt.length,
       });
 
-      logger.info('[PromptManager] Calling TEXT_LARGE model...');
+      logger.info('[PromptManager] Calling TEXT_SMALL model...');
       const suggestion = await this.runtime.useModel(ModelType.TEXT_SMALL, {
         prompt: fullPrompt,
       });
@@ -209,91 +293,25 @@ Based on this context and these facts, suggest an improved system prompt that wo
     });
   }
 
-  public async handleAiPromptUpdate(ctx: Context, userInput: string): Promise<void> {
-    logger.info('[PromptManager] Handling partial prompt update:', { userInput });
-
-    const currentDraft = await this.runtime.getSetting('prompt_draft');
-    if (!currentDraft) {
-      logger.warn('[PromptManager] No prompt draft found for partial update');
-      await ctx.reply(
-        'Sorry, there is no active prompt editing session. Please start a new prompt update.'
-      );
-      return;
-    }
-
-    const editPrompt = `You are editing the following system prompt for an AI agent:
-
-    CURRENT PROMPT:
-    "${currentDraft}"
-
-    USER REQUEST:
-    "${userInput}"
-
-    Please modify only the part of the prompt that the user wants changed. Keep everything else intact. Return the full revised prompt only.`;
-
-    try {
-      const updatedPrompt = await this.runtime.useModel(ModelType.TEXT_LARGE, {
-        prompt: editPrompt,
-      });
-
-      // Generate a short hash for the suggestion
-      const hash = crypto.createHash('sha256').update(updatedPrompt).digest('hex').slice(0, 8);
-      logger.info('[PromptManager] Generated hash for updated prompt:', { hash });
-
-      // Store the updated suggestion
-      await this.runtime.setSetting(`prompt_suggestion_${hash}`, updatedPrompt);
-
-      const buttons = [
-        [
-          Markup.button.callback('✅ Apply', `apply_prompt:${hash}`),
-          Markup.button.callback('❌ Cancel', 'dismiss_prompt'),
-        ],
-        [
-          Markup.button.callback('✏️ Edit manually', `edit_prompt:${hash}`),
-          Markup.button.callback('🤖 Edit with AI', `ai_edit_prompt:${hash}`),
-        ],
-        [Markup.button.callback('🔄 Another', 'another_prompt')],
-      ];
-
-      await ctx.reply(
-        `I've updated the prompt based on your request. Here's the new version:\n\n${updatedPrompt}\n\nWhat would you like to do?`,
-        Markup.inlineKeyboard(buttons)
-      );
-    } catch (error) {
-      logger.error('[PromptManager] Error handling partial prompt update:', error);
-      await ctx.reply('Sorry, I encountered an error while updating the prompt.');
-    }
-  }
-
   public async handlePromptUpdate(ctx: Context): Promise<void> {
     try {
       logger.info('[PromptManager] Starting prompt update handling');
       const suggestion = await this.generatePromptSuggestion();
 
-      // Store the suggestion as the current draft and initialize edit mode settings
-      await this.runtime.setSetting('prompt_draft', suggestion);
-      await this.runtime.setSetting('is_ai_edit_mode', 0);
-      await this.runtime.setSetting('is_manual_edit_mode', 0);
+      // Store the suggestion as the current draft and initialize edit mode settings using shared manager
+      await this.runtime.setSetting(this.promptEditConfig.draftKey, suggestion);
+      await this.runtime.setSetting(this.promptEditConfig.aiEditModeKey, 0);
+      await this.runtime.setSetting(this.promptEditConfig.manualEditModeKey, 0);
 
-      // Generate a short hash for the suggestion
-      const hash = crypto.createHash('sha256').update(suggestion).digest('hex').slice(0, 8);
-      logger.info('[PromptManager] Generated suggestion hash:', { hash });
+      // Store the suggestion temporarily using shared manager
+      const hash = await this.editManager.storeTemporaryContent(
+        suggestion,
+        this.promptEditConfig.storagePrefix
+      );
+      logger.info('[PromptManager] Stored suggestion with hash:', { hash });
 
-      // Store the suggestion temporarily
-      await this.runtime.setSetting(`prompt_suggestion_${hash}`, suggestion);
-      logger.info('[PromptManager] Stored suggestion with hash');
-
-      const buttons = [
-        [
-          Markup.button.callback('✅ Apply', `apply_prompt:${hash}`),
-          Markup.button.callback('❌ Dismiss', 'dismiss_prompt'),
-        ],
-        [
-          Markup.button.callback('✏️ Edit manually', `edit_prompt:${hash}`),
-          Markup.button.callback('🤖 Edit with AI', `ai_edit_prompt:${hash}`),
-        ],
-        [Markup.button.callback('🔄 Another', 'another_prompt')],
-      ];
+      // Generate buttons using shared manager
+      const buttons = this.editManager.generateEditButtons(hash, this.promptEditConfig);
 
       logger.info('[PromptManager] Sending suggestion to user');
       await ctx.reply(
@@ -314,85 +332,44 @@ Based on this context and these facts, suggest an improved system prompt that wo
     logger.info('[PromptManager] Handling callback:', { data });
 
     try {
+      // Try to handle with shared edit manager first
+      const wasHandled = await this.editManager.handleEditCallback(
+        ctx,
+        data,
+        this.promptEditConfig
+      );
+      if (wasHandled) {
+        // Handle regenerate callback
+        if (data === 'another_prompt') {
+          await this.handlePromptUpdate(ctx);
+        }
+
+        // Remove the inline keyboard
+        await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+        return;
+      }
+
+      // Handle prompt-specific callbacks
       if (data.startsWith('apply_prompt:')) {
         const hash = data.split(':')[1];
         logger.info('[PromptManager] Applying prompt with hash:', { hash });
 
-        const suggestion = await this.runtime.getSetting(`prompt_suggestion_${hash}`);
+        const suggestion = await this.editManager.getAndClearTemporaryContent(
+          hash,
+          this.promptEditConfig.storagePrefix
+        );
         if (!suggestion) {
           logger.warn('[PromptManager] Suggestion not found for hash:', { hash });
           await ctx.reply('Sorry, the suggestion has expired. Please request a new prompt update.');
           return;
         }
 
-        await this.runtime.setSetting(`prompt_suggestion_${hash}`, null);
-        await this.runtime.setSetting('prompt_draft', null);
-        await this.runtime.setSetting('is_ai_edit_mode', 0);
-        await this.runtime.setSetting('is_manual_edit_mode', 0);
+        // Clean up edit session
+        await this.editManager.cleanupEditSession(this.promptEditConfig);
         await this.applyPromptAndMarkAnalyzed(suggestion);
 
         await ctx.answerCbQuery('Prompt applied successfully!');
         await ctx.reply('✅ System prompt updated successfully!');
-      } else if (data === 'dismiss_prompt') {
-        logger.info('[PromptManager] Dismissing prompt update');
-        await this.runtime.setSetting('prompt_draft', null);
-        await this.runtime.setSetting('is_ai_edit_mode', 0);
-        await this.runtime.setSetting('is_manual_edit_mode', 0);
-        await ctx.answerCbQuery('Prompt update dismissed');
-        await ctx.reply('Prompt update dismissed.');
-      } else if (data.startsWith('edit_prompt:')) {
-        const hash = data.split(':')[1];
-        logger.info('[PromptManager] Starting manual edit for hash:', { hash });
-
-        const suggestion = await this.runtime.getSetting(`prompt_suggestion_${hash}`);
-        if (!suggestion) {
-          logger.warn('[PromptManager] Suggestion not found for hash:', { hash });
-          await ctx.answerCbQuery('Suggestion has expired');
-          await ctx.reply('Sorry, the suggestion has expired. Please request a new prompt update.');
-          return;
-        }
-
-        // Store the current suggestion as draft and activate manual edit session
-        await this.runtime.setSetting('prompt_draft', suggestion);
-        await this.runtime.setSetting('is_ai_edit_mode', 0);
-        await this.runtime.setSetting('is_manual_edit_mode', 1);
-
-        await ctx.answerCbQuery('Manual edit mode activated');
-        await ctx.reply(
-          `✏️ *Manual Edit Mode*\n\nHere's the current prompt. Send me your complete edited version:\n\n\`\`\`\n${suggestion}\n\`\`\``,
-          { parse_mode: 'Markdown' }
-        );
-      } else if (data.startsWith('ai_edit_prompt:')) {
-        const hash = data.split(':')[1];
-        logger.info('[PromptManager] Starting AI edit for hash:', { hash });
-
-        const suggestion = await this.runtime.getSetting(`prompt_suggestion_${hash}`);
-        if (!suggestion) {
-          logger.warn('[PromptManager] Suggestion not found for hash:', { hash });
-          await ctx.answerCbQuery('Suggestion has expired');
-          await ctx.reply('Sorry, the suggestion has expired. Please request a new prompt update.');
-          return;
-        }
-
-        // Store the current suggestion as draft and activate AI edit session
-        await this.runtime.setSetting('prompt_draft', suggestion);
-        await this.runtime.setSetting('is_ai_edit_mode', 1);
-        await this.runtime.setSetting('is_manual_edit_mode', 0);
-
-        logger.info('[PromptManager] AI edit mode activated', {
-          is_ai_edit_mode: await this.runtime.getSetting('is_ai_edit_mode'),
-          is_manual_edit_mode: await this.runtime.getSetting('is_manual_edit_mode'),
-        });
-
-        await ctx.answerCbQuery('AI edit mode activated');
-        await ctx.reply(
-          `🤖 *AI Edit Mode*\n\nYou can now send me instructions to modify specific parts of the prompt. For example:\n- "Remove the part about English language"\n- "Make it sound more neutral"\n- "Soften the tone a bit"\n\nCurrent prompt:\n\n\`\`\`\n${suggestion}\n\`\`\``,
-          { parse_mode: 'Markdown' }
-        );
-      } else if (data === 'another_prompt') {
-        logger.info('[PromptManager] Generating another prompt suggestion');
-        await ctx.answerCbQuery('Generating new suggestion...');
-        await this.handlePromptUpdate(ctx);
       }
 
       // Remove the inline keyboard
@@ -401,38 +378,6 @@ Based on this context and these facts, suggest an improved system prompt that wo
     } catch (error) {
       logger.error('[PromptManager] Error handling prompt callback:', error);
       await ctx.reply('Sorry, I encountered an error while processing your request.');
-    }
-  }
-
-  public async handleManualEdit(ctx: Context, newPrompt: string): Promise<void> {
-    try {
-      logger.info('[PromptManager] Handling manual prompt edit');
-
-      // Generate a hash for the new version
-      const hash = crypto.createHash('sha256').update(newPrompt).digest('hex').slice(0, 8);
-      logger.info('[PromptManager] Generated hash for manual edit:', { hash });
-
-      // Store the edited version
-      await this.runtime.setSetting(`prompt_suggestion_${hash}`, newPrompt);
-
-      const buttons = [
-        [
-          Markup.button.callback('✅ Apply', `apply_prompt:${hash}`),
-          Markup.button.callback('❌ Cancel', 'dismiss_prompt'),
-        ],
-        [Markup.button.callback('✏️ Edit again', `edit_prompt:${hash}`)],
-      ];
-
-      await ctx.reply(
-        `Here's your edited version of the prompt. Would you like to apply it?\n\n\`\`\`\n${newPrompt}\n\`\`\``,
-        {
-          parse_mode: 'Markdown',
-          reply_markup: Markup.inlineKeyboard(buttons).reply_markup,
-        }
-      );
-    } catch (error) {
-      logger.error('[PromptManager] Error handling manual edit:', error);
-      await ctx.reply('Sorry, I encountered an error while processing your edited prompt.');
     }
   }
 }

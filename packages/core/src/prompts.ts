@@ -25,10 +25,6 @@ IMPORTANT: Your response must ONLY contain the <response></response> XML block a
 
 export const messageHandlerTemplate = `<task>Generate dialog and actions for the character {{agentName}}.</task>
 
-<system>
-{{system}}
-</system>
-
 <providers>
 {{providers}}
 </providers>

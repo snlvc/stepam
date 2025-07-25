@@ -370,6 +370,9 @@ export class MessageManager {
           case '/generate_post_by_theme':
             await this.handleThemePostCommand(ctx, args);
             return;
+          case '/clear_style_cache':
+            await this.handleClearStyleCache(ctx);
+            return;
           // Add other commands here if needed
         }
       }
@@ -716,6 +719,28 @@ export class MessageManager {
     } catch (error) {
       logger.error('[MessageManager] Error handling theme post command:', error);
       await ctx.reply('❌ Произошла ошибка при обработке команды.');
+    }
+  }
+
+  /**
+   * Handles /clear_style_cache command to clear the cached writing style
+   */
+  private async handleClearStyleCache(ctx: Context): Promise<void> {
+    try {
+      logger.info('[MessageManager] Clearing writing style cache');
+
+      // Clear the cached style data
+      await this.runtime.setSetting('cached_author_style', null);
+      await this.runtime.setSetting('author_style_cache_timestamp', null);
+
+      await ctx.reply(
+        '✅ Кэш стиля письма очищен. При следующей генерации поста стиль будет проанализирован заново.'
+      );
+
+      logger.info('[MessageManager] Writing style cache cleared successfully');
+    } catch (error) {
+      logger.error('[MessageManager] Error clearing style cache:', error);
+      await ctx.reply('❌ Произошла ошибка при очистке кэша стиля.');
     }
   }
 

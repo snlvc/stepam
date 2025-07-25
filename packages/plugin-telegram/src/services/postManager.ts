@@ -295,25 +295,28 @@ export class PostManager {
       }
 
       try {
+        // Extract author's writing style for consistent voice
+        logger.info('[PostManager] Extracting author writing style for user theme post...');
+        const authorStyle = await this.getAuthorStyleFromMemories();
+
         // Create enhanced post generation prompt using found memories
         const memoryContext = this.formatMemoriesForContext(relevantMemories);
 
-        const userThemePostPrompt = `Создай пост для Telegram-канала на основе предоставленной темы и связанных воспоминаний:
+        const userThemePostPrompt = `Создай пост для Telegram-канала на основе предоставленной темы и связанных воспоминаний в стиле автора:
 
         ТЕМА: "${userTheme}"
         
         СВЯЗАННЫЕ ВОСПОМИНАНИЯ:
         ${memoryContext}
 
-        СТИЛЬ: ${style}
+        СТИЛЬ АВТОРА: ${authorStyle}
 
         Требования:
         - Пост должен раскрывать тему "${userTheme}" через призму личного опыта из воспоминаний
+        - ОБЯЗАТЕЛЬНО используй стиль автора: ${authorStyle}
         - Используй конкретные детали и ситуации из воспоминаний
-        - Стиль должен быть ${style}
         - Тон: личный, искренний, основанный на реальном опыте
-        - Без излишней метафоричности
-        - Понятный и близкий читателю
+        - Сохраняй характерные особенности письма автора
         - Объедини воспоминания в цельное размышление на заданную тему
 
         Верни только текст поста без кавычек и дополнительного форматирования.`;
@@ -426,18 +429,22 @@ export class PostManager {
       }
 
       try {
+        // Extract author's writing style for consistent voice
+        logger.info('[PostManager] Extracting author writing style for theme post...');
+        const authorStyle = await this.getAuthorStyleFromMemories();
+
         // Create a custom theme-based post generation prompt
-        const themePostPrompt = `Создай пост для Telegram-канала на основе следующей темы:
+        const themePostPrompt = `Создай пост для Telegram-канала на основе следующей темы в стиле автора:
 
         ТЕМА: "${theme}"
 
-        СТИЛЬ: ${style}
+        СТИЛЬ АВТОРА: ${authorStyle}
 
         Требования:
         - Пост должен раскрывать указанную тему
-        - Стиль должен быть ${style}
+        - ОБЯЗАТЕЛЬНО используй стиль автора: ${authorStyle}
         - Тон: личный, искренний, релевантный
-        - Без излишней метафоричности
+        - Сохраняй характерные особенности письма автора
         - Понятный и близкий читателю
 
         Верни только текст поста без кавычек и дополнительного форматирования.`;
@@ -716,6 +723,417 @@ export class PostManager {
         return `Воспоминание ${index + 1} (${date}): ${truncatedText}`;
       })
       .join('\n\n');
+  }
+
+  // ================================================================================================
+  // WRITING STYLE EXTRACTION AND INTEGRATION
+  // ================================================================================================
+  // This section implements advanced writing style extraction and integration for consistent
+  // post generation that matches the author's personal voice and writing patterns.
+  //
+  // FEATURES:
+  // • Extracts style from memories tagged with style keywords (e.g., "author-style", "writing-style")
+  // • Falls back to analyzing recent author content if no tagged memories found
+  // • Uses AI to analyze stylistic features like tone, sentence structure, and vocabulary
+  // • Caches extracted style for 7 days to avoid re-analysis overhead
+  // • Integrates style into character prompts for consistent voice across all post types
+  // • Works with theme-based posts, memory-based posts, and regular post generation
+  //
+  // USAGE:
+  // • Tag memories with "author-style" or "writing-style" to mark exemplary content
+  // • Use /clear_style_cache command to force re-analysis of writing style
+  // • Style is automatically applied to all post generation methods
+  //
+  // ARCHITECTURE:
+  // • getAuthorStyleFromMemories() - Main entry point for style extraction
+  // • getStyleTaggedMemories() - Searches for specifically tagged style examples
+  // • getRecentAuthorMemories() - Fallback to recent author content analysis
+  // • analyzeWritingStyle() - AI-powered style analysis and description generation
+  // • cacheAuthorStyle() / getCachedAuthorStyle() - Style caching system
+  // • enhanceCharacterWithStyle() - Integrates style into character for generation
+  // ================================================================================================
+
+  /**
+   * Extracts and analyzes the author's writing style from tagged memories
+   * @param maxStyleMemories Maximum number of style memories to analyze
+   * @returns Promise<string> Style description for use in prompts
+   */
+  public async getAuthorStyleFromMemories(maxStyleMemories: number = 20): Promise<string> {
+    try {
+      logger.info('[PostManager] Extracting author writing style from memories');
+
+      // Try to get cached style first to avoid re-analysis
+      const cachedStyle = await this.getCachedAuthorStyle();
+      if (cachedStyle) {
+        logger.info('[PostManager] Using cached author style');
+        return cachedStyle;
+      }
+
+      // Search for memories tagged with style indicators
+      const styleMemories = await this.getStyleTaggedMemories(maxStyleMemories);
+
+      if (styleMemories.length === 0) {
+        logger.warn('[PostManager] No style-tagged memories found, falling back to recent posts');
+        // Fallback: analyze recent posts/messages for style
+        const recentMemories = await this.getRecentAuthorMemories(maxStyleMemories);
+        if (recentMemories.length > 0) {
+          return await this.analyzeWritingStyle(recentMemories);
+        }
+        return this.getDefaultStylePrompt();
+      }
+
+      // Analyze the tagged memories for style
+      const extractedStyle = await this.analyzeWritingStyle(styleMemories);
+
+      // Cache the extracted style for future use
+      await this.cacheAuthorStyle(extractedStyle);
+
+      logger.info('[PostManager] Successfully extracted and cached author writing style');
+      return extractedStyle;
+    } catch (error) {
+      logger.error('[PostManager] Error extracting author style:', error);
+      return this.getDefaultStylePrompt();
+    }
+  }
+
+  /**
+   * Searches for memories specifically tagged with style information
+   */
+  private async getStyleTaggedMemories(maxResults: number): Promise<any[]> {
+    try {
+      logger.info('[PostManager] Searching for style-tagged memories');
+
+      // Search for memories with style-related tags or metadata
+      const styleKeywords = [
+        'author-style',
+        'writing-style',
+        'style-example',
+        'personal-voice',
+        'my-writing',
+        'style-analysis',
+      ];
+
+      const allStyleMemories: any[] = [];
+
+      // Search each style keyword
+      for (const keyword of styleKeywords) {
+        try {
+          const memories = await this.runtime.getMemories({
+            tableName: 'messages',
+            start: 0,
+            end: Date.now(),
+            count: maxResults,
+          });
+
+          if (memories && memories.length > 0) {
+            // Filter memories that contain style tags AND are user-authored (using metadata)
+            const taggedMemories = memories.filter((memory) => {
+              const text = memory.content?.text || '';
+              const textLower = text.toLowerCase();
+              const metadata = JSON.stringify(memory.metadata || {}).toLowerCase();
+              const memoryMetadata = memory.metadata as any;
+
+              // First check if it contains the style keyword
+              const hasStyleKeyword =
+                textLower.includes(keyword) ||
+                metadata.includes(keyword) ||
+                (Array.isArray(memory.metadata?.tags) && memory.metadata.tags.includes(keyword)) ||
+                (Array.isArray(memory.content?.tags) && memory.content.tags.includes(keyword));
+
+              if (!hasStyleKeyword) return false;
+
+              // Then ensure it's user-authored content using metadata
+              const isUserContent =
+                // PRIMARY: Use metadata to identify genuine user messages
+                memoryMetadata?.type === 'message' &&
+                memoryMetadata?.fromBot === false &&
+                memoryMetadata?.fromId &&
+                memoryMetadata?.entityName;
+
+              return isUserContent;
+            });
+
+            allStyleMemories.push(...taggedMemories);
+          }
+        } catch (error) {
+          logger.warn(`[PostManager] Error searching for keyword ${keyword}:`, error);
+        }
+      }
+
+      // Remove duplicates and limit results
+      const uniqueMemories = allStyleMemories.filter(
+        (memory, index, array) => array.findIndex((m) => m.id === memory.id) === index
+      );
+
+      logger.info('[PostManager] Found style-tagged memories:', { count: uniqueMemories.length });
+      return uniqueMemories.slice(0, maxResults);
+    } catch (error) {
+      logger.error('[PostManager] Error getting style-tagged memories:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Gets recent memories from the author for style analysis fallback
+   */
+  private async getRecentAuthorMemories(maxResults: number): Promise<any[]> {
+    try {
+      logger.info('[PostManager] Getting recent author memories for style analysis');
+
+      const endTime = Date.now();
+      const startTime = endTime - 30 * 24 * 60 * 60 * 1000; // Last 30 days
+
+      const recentMemories = await this.runtime.getMemories({
+        tableName: 'messages',
+        start: startTime,
+        end: endTime,
+        count: maxResults * 2, // Get more to filter from
+      });
+
+      if (!recentMemories || recentMemories.length === 0) {
+        return [];
+      }
+
+      // Filter for USER's actual messages using metadata (fromBot=false, type=message)
+      const authorMemories = recentMemories.filter((memory) => {
+        const text = memory.content?.text || '';
+        const metadata = memory.metadata as any; // Type assertion to access custom properties
+
+        // Debug logging for first few memories
+        if (recentMemories.indexOf(memory) < 3) {
+          logger.info(`[PostManager] Debug memory ${recentMemories.indexOf(memory)}:`, {
+            text: text.substring(0, 100) + '...',
+            metadataType: metadata?.type,
+            fromBot: metadata?.fromBot,
+            fromId: metadata?.fromId,
+            entityName: metadata?.entityName,
+            source: memory.content?.source,
+            entityId: memory.entityId,
+            agentId: this.runtime.agentId,
+          });
+        }
+
+        // PRIMARY FILTER: Use metadata to identify genuine user messages
+        const isUserMessage =
+          metadata?.type === 'message' && // Is a message (not action result)
+          metadata?.fromBot === false && // Explicitly from user, not bot
+          metadata?.fromId && // Has user ID
+          metadata?.entityName; // Has user name
+
+        // RELAXED FILTER: Alternative check for user messages without strict metadata
+        const isUserMessageRelaxed =
+          memory.entityId !== this.runtime.agentId && // Not from agent
+          !text.startsWith('Generated reply:') && // Not AI-generated
+          metadata?.type !== 'action_result' && // Not action result
+          memory.content?.type !== 'action_result' && // Not action content
+          memory.content?.source === 'telegram'; // From telegram
+
+        // SECONDARY FILTER: Basic content quality checks
+        const hasGoodContent =
+          text.length > 10 && // Prefer substantial content (not just "/command1")
+          text.length < 2000; // Avoid extremely long messages that might be corrupted
+
+        // FALLBACK: For explicitly marked author content (posts, etc.)
+        const isMarkedAuthorContent =
+          metadata?.isAuthorContent === true || memory.content?.source === 'post';
+
+        const shouldInclude =
+          (isUserMessage && hasGoodContent) ||
+          (isUserMessageRelaxed && hasGoodContent) ||
+          isMarkedAuthorContent;
+
+        if (recentMemories.indexOf(memory) < 3) {
+          logger.info(`[PostManager] Memory ${recentMemories.indexOf(memory)} decision:`, {
+            isUserMessage,
+            isUserMessageRelaxed,
+            hasGoodContent,
+            isMarkedAuthorContent,
+            shouldInclude,
+          });
+        }
+
+        return shouldInclude;
+      });
+
+      logger.info('[PostManager] Found recent user memories (filtered by metadata):', {
+        total: recentMemories.length,
+        userMessages: authorMemories.length,
+      });
+
+      return authorMemories.slice(0, maxResults);
+    } catch (error) {
+      logger.error('[PostManager] Error getting recent author memories:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Analyzes writing style from a collection of memories using AI
+   */
+  private async analyzeWritingStyle(memories: any[]): Promise<string> {
+    try {
+      if (memories.length === 0) {
+        return this.getDefaultStylePrompt();
+      }
+
+      logger.info('[PostManager] Analyzing writing style from memories:', {
+        count: memories.length,
+      });
+
+      // Format memories for style analysis
+      const memoryTexts = memories
+        .map((memory) => memory.content?.text || '')
+        .filter((text) => text.length > 20) // Filter out very short texts
+        .join('\n\n---\n\n');
+
+      if (!memoryTexts) {
+        return this.getDefaultStylePrompt();
+      }
+
+      const styleAnalysisPrompt = `Проанализируй следующие тексты пользователя и определи характерные особенности его естественного стиля письма:
+
+      ТЕКСТЫ ПОЛЬЗОВАТЕЛЯ (исключены AI-ответы):
+      ${memoryTexts}
+
+      ВАЖНО: Анализируй именно естественный стиль письма пользователя, а не AI-сгенерированные ответы.
+
+      ЗАДАЧА:
+      Определи ключевые стилистические особенности пользователя, включая:
+      - Тон (формальный/неформальный, личный/отстранённый, эмоциональный/сдержанный)
+      - Структура предложений (короткие/длинные, простые/сложные)
+      - Лексика (простая/сложная, образная/прямая, использование сленга)
+      - Ритм и темп текста
+      - Характерные обороты речи и выражения
+      - Отношение к темам (прямое/философское)
+      - Эмоциональная окраска
+      - Уровень детализации в описаниях
+
+      ФОРМАТ ОТВЕТА:
+      Верни краткое описание стиля (2-3 предложения), которое можно использовать в инструкции для генерации постов.
+      
+      Пример: "Стиль пользователя характеризуется неформальным разговорным тоном с элементами размышлений. Использует простые, прямые предложения, часто задаёт вопросы и склонен к детальным описаниям личного опыта без излишней поэтичности."`;
+
+      const styleDescription = await this.runtime.useModel('TEXT_SMALL', {
+        prompt: styleAnalysisPrompt,
+      });
+
+      if (styleDescription && styleDescription.length > 10) {
+        logger.info('[PostManager] Successfully analyzed writing style');
+        return styleDescription;
+      } else {
+        logger.warn('[PostManager] Style analysis returned insufficient data');
+        return this.getDefaultStylePrompt();
+      }
+    } catch (error) {
+      logger.error('[PostManager] Error analyzing writing style:', error);
+      return this.getDefaultStylePrompt();
+    }
+  }
+
+  /**
+   * Returns a default style prompt when no style can be extracted
+   */
+  private getDefaultStylePrompt(): string {
+    return 'искренний, личный тон с естественными размышлениями, без излишней поэтичности или формальности';
+  }
+
+  /**
+   * Gets cached author style to avoid re-analysis
+   */
+  private async getCachedAuthorStyle(): Promise<string | null> {
+    try {
+      const cachedStyle = await this.runtime.getSetting('cached_author_style');
+      const cacheTimestamp = await this.runtime.getSetting('author_style_cache_timestamp');
+
+      if (cachedStyle && cacheTimestamp) {
+        const cacheAge = Date.now() - parseInt(cacheTimestamp as string);
+        const maxCacheAge = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+        if (cacheAge < maxCacheAge) {
+          return cachedStyle as string;
+        }
+      }
+
+      return null;
+    } catch (error) {
+      logger.warn('[PostManager] Error getting cached style:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Caches the extracted author style for future use
+   */
+  private async cacheAuthorStyle(style: string): Promise<void> {
+    try {
+      await this.runtime.setSetting('cached_author_style', style);
+      await this.runtime.setSetting('author_style_cache_timestamp', Date.now().toString());
+      logger.info('[PostManager] Cached author style for future use');
+    } catch (error) {
+      logger.warn('[PostManager] Error caching author style:', error);
+    }
+  }
+
+  /**
+   * Enhances a character with the extracted author's writing style
+   * @param character The original character to enhance
+   * @param authorStyle The extracted author style description
+   * @returns Enhanced character with style integrated into prompts
+   */
+  private async enhanceCharacterWithStyle(
+    character: Character,
+    authorStyle: string
+  ): Promise<Character> {
+    try {
+      logger.info('[PostManager] Enhancing character with author style');
+
+      // Create enhanced character with style-aware prompts
+      const enhancedCharacter: Character = {
+        ...character,
+        // Enhance the system prompt to include style guidance
+        system: character.system
+          ? `${character.system}\n\nSTYLE GUIDANCE: When creating posts, maintain the author's distinctive writing style: ${authorStyle}`
+          : `STYLE GUIDANCE: When creating posts, maintain the author's distinctive writing style: ${authorStyle}`,
+
+        // Enhance style description (style properties should be string arrays)
+        style: character.style
+          ? {
+              ...character.style,
+              post: [
+                ...(Array.isArray(character.style.post) ? character.style.post : []),
+                `Author's characteristic style: ${authorStyle}`,
+              ],
+            }
+          : {
+              all: [`Author's characteristic style: ${authorStyle}`],
+              post: [`Author's characteristic style: ${authorStyle}`],
+            },
+
+        // Add style context to post examples if they exist
+        postExamples: character.postExamples?.map((example: any) => {
+          // Handle both string and object post examples with type assertion
+          if (typeof example === 'string') {
+            return `${example}\n\n[Note: This example reflects the author's style: ${authorStyle}]`;
+          } else if (example && typeof example === 'object' && example.content) {
+            return {
+              ...example,
+              content: {
+                ...example.content,
+                text: `${example.content.text || ''}\n\n[Note: This example reflects the author's style: ${authorStyle}]`,
+              },
+            };
+          }
+          return example;
+        }),
+      };
+
+      logger.info('[PostManager] Character enhanced with author style successfully');
+      return enhancedCharacter;
+    } catch (error) {
+      logger.error('[PostManager] Error enhancing character with style:', error);
+      // Return original character if enhancement fails
+      return character;
+    }
   }
 
   /**
@@ -1021,41 +1439,60 @@ export class PostManager {
       }
 
       try {
-        // Use the core postGeneratedHandler through event system
-        await currentRuntime.emitEvent(EventType.POST_GENERATED, {
-          runtime: currentRuntime,
-          callback: async (content) => {
-            if (!content.text) return;
+        // Extract and apply author's writing style to the character
+        logger.info('[PostManager] Extracting author writing style for post generation...');
+        const authorStyle = await this.getAuthorStyleFromMemories();
 
-            // IMPORTANT: Store content using the original runtime (not the swapped one)
-            // to ensure consistent retrieval later during callback handling
-            const hash = await this.editManager.storeTemporaryContent(
-              content.text,
-              this.postEditConfig.storagePrefix
-            );
+        // Enhance the character with author's style for this generation
+        const enhancedCharacter = await this.enhanceCharacterWithStyle(
+          currentRuntime.character,
+          authorStyle
+        );
 
-            // Also store draft and settings using original runtime
-            await this.runtime.setSetting(this.postEditConfig.draftKey, content.text);
-            await this.runtime.setSetting(this.postEditConfig.aiEditModeKey, 0);
-            await this.runtime.setSetting(this.postEditConfig.manualEditModeKey, 0);
+        // Temporarily apply the enhanced character
+        const originalCurrentCharacter = currentRuntime.character;
+        (currentRuntime as any).character = enhancedCharacter;
 
-            // Clear any theme settings since this is regular post generation
-            await this.runtime.setSetting('current_post_theme', null);
-            await this.runtime.setSetting('current_post_style', null);
-            await this.runtime.setSetting('current_post_format', null);
+        try {
+          // Use the core postGeneratedHandler through event system
+          await currentRuntime.emitEvent(EventType.POST_GENERATED, {
+            runtime: currentRuntime,
+            callback: async (content) => {
+              if (!content.text) return;
 
-            // Generate buttons using shared manager
-            const buttons = this.editManager.generateEditButtons(hash, this.postEditConfig);
+              // IMPORTANT: Store content using the original runtime (not the swapped one)
+              // to ensure consistent retrieval later during callback handling
+              const hash = await this.editManager.storeTemporaryContent(
+                content.text,
+                this.postEditConfig.storagePrefix
+              );
 
-            await ctx.reply(content.text, {
-              reply_markup: { inline_keyboard: buttons },
-            });
-          },
-          worldId,
-          userId,
-          roomId,
-          source: 'telegram',
-        });
+              // Also store draft and settings using original runtime
+              await this.runtime.setSetting(this.postEditConfig.draftKey, content.text);
+              await this.runtime.setSetting(this.postEditConfig.aiEditModeKey, 0);
+              await this.runtime.setSetting(this.postEditConfig.manualEditModeKey, 0);
+
+              // Clear any theme settings since this is regular post generation
+              await this.runtime.setSetting('current_post_theme', null);
+              await this.runtime.setSetting('current_post_style', null);
+              await this.runtime.setSetting('current_post_format', null);
+
+              // Generate buttons using shared manager
+              const buttons = this.editManager.generateEditButtons(hash, this.postEditConfig);
+
+              await ctx.reply(content.text, {
+                reply_markup: { inline_keyboard: buttons },
+              });
+            },
+            worldId,
+            userId,
+            roomId,
+            source: 'telegram',
+          });
+        } finally {
+          // Restore the character before style enhancement
+          (currentRuntime as any).character = originalCurrentCharacter;
+        }
       } finally {
         // Always restore the original character if we swapped it
         if (originalCharacter) {

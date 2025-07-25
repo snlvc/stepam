@@ -302,6 +302,10 @@ export class PostManager {
         // Create enhanced post generation prompt using found memories
         const memoryContext = this.formatMemoriesForContext(relevantMemories);
 
+        const style = `
+        Пиши в стиле книги «Пиши, сокращай» Ильяхова.
+        Ясно. Чётко. Без воды. Прямо к сути.
+        `;
         const userThemePostPrompt = `Создай пост для Telegram-канала на основе предоставленной темы и связанных воспоминаний в стиле автора:
 
         ТЕМА: "${userTheme}"
@@ -314,6 +318,7 @@ export class PostManager {
         Требования:
         - Пост должен раскрывать тему "${userTheme}" через призму личного опыта из воспоминаний
         - ОБЯЗАТЕЛЬНО используй стиль автора: ${authorStyle}
+        - ${style}
         - Используй конкретные детали и ситуации из воспоминаний
         - Тон: личный, искренний, основанный на реальном опыте
         - Сохраняй характерные особенности письма автора
@@ -433,6 +438,11 @@ export class PostManager {
         logger.info('[PostManager] Extracting author writing style for theme post...');
         const authorStyle = await this.getAuthorStyleFromMemories();
 
+        const style = `
+        Пиши в стиле книги «Пиши, сокращай» Ильяхова.
+        Ясно. Чётко. Без воды. Прямо к сути.
+        `;
+
         // Create a custom theme-based post generation prompt
         const themePostPrompt = `Создай пост для Telegram-канала на основе следующей темы в стиле автора:
 
@@ -443,6 +453,7 @@ export class PostManager {
         Требования:
         - Пост должен раскрывать указанную тему
         - ОБЯЗАТЕЛЬНО используй стиль автора: ${authorStyle}
+        - ${style}
         - Тон: личный, искренний, релевантный
         - Сохраняй характерные особенности письма автора
         - Понятный и близкий читателю
@@ -803,61 +814,38 @@ export class PostManager {
     try {
       logger.info('[PostManager] Searching for style-tagged memories');
 
-      // Search for memories with style-related tags or metadata
-      const styleKeywords = [
-        'author-style',
-        'writing-style',
-        'style-example',
-        'personal-voice',
-        'my-writing',
-        'style-analysis',
-      ];
-
       const allStyleMemories: any[] = [];
 
       // Search each style keyword
-      for (const keyword of styleKeywords) {
-        try {
-          const memories = await this.runtime.getMemories({
-            tableName: 'messages',
-            start: 0,
-            end: Date.now(),
-            count: maxResults,
+      try {
+        logger.info('[PostManager] Searching for style-tagged memories');
+        const memories = await this.runtime.getMemories({
+          tableName: 'messages',
+          start: 0,
+          end: Date.now(),
+          count: maxResults,
+        });
+
+        if (memories && memories.length > 0) {
+          // Filter memories that contain style tags AND are user-authored (using metadata)
+          const taggedMemories = memories.filter((memory) => {
+            const memoryMetadata = memory.metadata as any;
+
+            // Then ensure it's user-authored content using metadata
+            const isUserContent =
+              // PRIMARY: Use metadata to identify genuine user messages
+              memoryMetadata?.type === 'message' &&
+              memoryMetadata?.fromBot === false &&
+              memoryMetadata?.fromId &&
+              memoryMetadata?.entityName;
+
+            return isUserContent;
           });
 
-          if (memories && memories.length > 0) {
-            // Filter memories that contain style tags AND are user-authored (using metadata)
-            const taggedMemories = memories.filter((memory) => {
-              const text = memory.content?.text || '';
-              const textLower = text.toLowerCase();
-              const metadata = JSON.stringify(memory.metadata || {}).toLowerCase();
-              const memoryMetadata = memory.metadata as any;
-
-              // First check if it contains the style keyword
-              const hasStyleKeyword =
-                textLower.includes(keyword) ||
-                metadata.includes(keyword) ||
-                (Array.isArray(memory.metadata?.tags) && memory.metadata.tags.includes(keyword)) ||
-                (Array.isArray(memory.content?.tags) && memory.content.tags.includes(keyword));
-
-              if (!hasStyleKeyword) return false;
-
-              // Then ensure it's user-authored content using metadata
-              const isUserContent =
-                // PRIMARY: Use metadata to identify genuine user messages
-                memoryMetadata?.type === 'message' &&
-                memoryMetadata?.fromBot === false &&
-                memoryMetadata?.fromId &&
-                memoryMetadata?.entityName;
-
-              return isUserContent;
-            });
-
-            allStyleMemories.push(...taggedMemories);
-          }
-        } catch (error) {
-          logger.warn(`[PostManager] Error searching for keyword ${keyword}:`, error);
+          allStyleMemories.push(...taggedMemories);
         }
+      } catch (error) {
+        logger.error('[PostManager] Error getting style-tagged memories:', error);
       }
 
       // Remove duplicates and limit results

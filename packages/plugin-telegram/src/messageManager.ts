@@ -367,6 +367,9 @@ export class MessageManager {
           case '/generate_post':
             await this.handleThemesCommand(ctx, args);
             return;
+          case '/generate_post_by_theme':
+            await this.handleThemePostCommand(ctx, args);
+            return;
           // Add other commands here if needed
         }
       }
@@ -400,11 +403,19 @@ export class MessageManager {
       // Check for active edit session from both managers
       const promptEditMode = await this.promptManager.isInEditMode();
       const postEditMode = await this.postManager.isInEditMode();
+      const isWaitingForTheme = await this.postManager.isWaitingForTheme();
 
       logger.info('Edit mode status:', {
         prompt: promptEditMode,
         post: postEditMode,
+        waitingForTheme: isWaitingForTheme,
       });
+
+      // Handle theme waiting mode
+      if (isWaitingForTheme) {
+        await this.postManager.handleThemeInput(ctx, messageText);
+        return;
+      }
 
       // Handle prompt editing modes
       if (promptEditMode.isAI) {
@@ -684,6 +695,27 @@ export class MessageManager {
 
       // Clear theme selection state on error
       await this.runtime.setSetting('pending_themes', null);
+    }
+  }
+
+  /**
+   * Handles /generate_post_by_theme command to generate posts based on user-provided themes
+   */
+  private async handleThemePostCommand(ctx: Context, args: string[]): Promise<void> {
+    try {
+      // If theme is provided as arguments, use it directly
+      if (args.length > 0) {
+        const theme = args.join(' ');
+        logger.info('[MessageManager] Generating post for provided theme:', theme);
+        await this.postManager.generatePostByUserTheme(ctx, theme);
+      } else {
+        // Otherwise, initiate theme request flow
+        logger.info('[MessageManager] Initiating theme request flow');
+        await this.postManager.requestThemeFromUser(ctx);
+      }
+    } catch (error) {
+      logger.error('[MessageManager] Error handling theme post command:', error);
+      await ctx.reply('❌ Произошла ошибка при обработке команды.');
     }
   }
 

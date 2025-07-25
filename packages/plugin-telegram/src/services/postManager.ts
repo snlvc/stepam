@@ -83,6 +83,61 @@ export class PostManager {
   }
 
   /**
+   * Checks if we're waiting for user to provide a theme
+   */
+  public async isWaitingForTheme(): Promise<boolean> {
+    const waitingState = await this.runtime.getSetting('waiting_for_theme');
+    return waitingState === '1' || waitingState === 1;
+  }
+
+  /**
+   * Initiates the theme request flow
+   */
+  public async requestThemeFromUser(ctx: Context): Promise<void> {
+    try {
+      logger.info('[PostManager] Requesting theme from user');
+
+      // Set waiting state
+      await this.runtime.setSetting('waiting_for_theme', '1');
+
+      await ctx.reply(
+        '🎨 **Генерация поста по теме**\n\n' +
+          'Пожалуйста, опишите тему для поста. Например:\n' +
+          '• "страх перемен"\n' +
+          '• "чайные ритуалы"\n' +
+          '• "горы и тишина"\n' +
+          '• "усталость от городской суеты"\n\n' +
+          'Я найду связанные воспоминания и создам пост на основе вашего опыта.',
+        { parse_mode: 'Markdown' }
+      );
+    } catch (error) {
+      logger.error('[PostManager] Error requesting theme from user:', error);
+      await ctx.reply('❌ Произошла ошибка при запросе темы.');
+    }
+  }
+
+  /**
+   * Handles user input when waiting for theme
+   */
+  public async handleThemeInput(ctx: Context, theme: string): Promise<void> {
+    try {
+      logger.info('[PostManager] Processing user theme input:', theme);
+
+      // Clear waiting state
+      await this.runtime.setSetting('waiting_for_theme', '0');
+
+      // Generate post based on user-provided theme
+      await this.generatePostByUserTheme(ctx, theme);
+    } catch (error) {
+      logger.error('[PostManager] Error handling theme input:', error);
+      await ctx.reply('❌ Произошла ошибка при обработке темы.');
+
+      // Clear waiting state on error
+      await this.runtime.setSetting('waiting_for_theme', '0');
+    }
+  }
+
+  /**
    * Extracts themes from recent memories for theme-based post generation
    */
   public async getThemesFromMemory(days: number = 7, maxThemes: number = 4): Promise<string[]> {
@@ -162,6 +217,161 @@ export class PostManager {
         'Повседневная философия',
         'Эмоциональные состояния',
       ];
+    }
+  }
+
+  /**
+   * Generates a post based on user-provided theme with memory search
+   */
+  public async generatePostByUserTheme(
+    ctx: Context,
+    userTheme: string,
+    style: string = 'honest, without poetry',
+    format: string = 'short_post'
+  ): Promise<void> {
+    try {
+      logger.info('[PostManager] Generating user theme-based post:', { userTheme, style, format });
+
+      if (!ctx.from || !ctx.chat) {
+        logger.error('[PostManager] Missing required context objects:', {
+          hasFrom: !!ctx.from,
+          hasChat: !!ctx.chat,
+        });
+        return;
+      }
+
+      logger.info('[PostManager] Searching for relevant memories...');
+      await ctx.reply(`🔍 Ищу воспоминания по теме: "${userTheme}"...`);
+
+      // Search for relevant memories based on the theme
+      const relevantMemories = await this.searchMemoriesByTheme(userTheme);
+
+      logger.info('[PostManager] Found relevant memories:', {
+        count: relevantMemories.length,
+        theme: userTheme,
+      });
+
+      if (relevantMemories.length === 0) {
+        await ctx.reply(
+          `😔 Не нашёл воспоминаний по теме "${userTheme}".\n\n` +
+            'Попробуйте другую тему или создайте обычный пост с помощью команды без аргументов.'
+        );
+        return;
+      }
+
+      await ctx.reply(`✨ Нашёл ${relevantMemories.length} связанных воспоминаний. Создаю пост...`);
+
+      // Create unique IDs
+      const userId = createUniqueUuid(this.runtime, ctx.from.id.toString()) as UUID;
+      const worldId = createUniqueUuid(this.runtime, `telegram-${userId}`) as UUID;
+      const roomId = createUniqueUuid(this.runtime, process.env.TELEGRAM_CHANNEL_ID || '') as UUID;
+      logger.info('[PostManager] Generated UUIDs for user theme post:', {
+        userId,
+        worldId,
+        roomId,
+      });
+
+      // Load TelegramPoster character if needed
+      let currentRuntime = this.runtime;
+      let originalCharacter: Character | null = null;
+
+      if (this.runtime.character.name !== 'TelegramPoster') {
+        logger.info('[PostManager] Loading TelegramPoster character for user theme...');
+        try {
+          const telegramPosterChar = await this.loadTelegramPosterCharacter();
+          originalCharacter = this.runtime.character;
+          (currentRuntime as any).character = telegramPosterChar;
+          logger.info('[PostManager] TelegramPoster character loaded successfully for user theme');
+        } catch (error) {
+          logger.error(
+            '[PostManager] Failed to load TelegramPoster character for user theme:',
+            error
+          );
+          await ctx.reply('Ошибка: Не удалось загрузить конфигурацию TelegramPoster');
+          return;
+        }
+      } else {
+        logger.info('[PostManager] Using existing TelegramPoster character for user theme');
+      }
+
+      try {
+        // Create enhanced post generation prompt using found memories
+        const memoryContext = this.formatMemoriesForContext(relevantMemories);
+
+        const userThemePostPrompt = `Создай пост для Telegram-канала на основе предоставленной темы и связанных воспоминаний:
+
+        ТЕМА: "${userTheme}"
+        
+        СВЯЗАННЫЕ ВОСПОМИНАНИЯ:
+        ${memoryContext}
+
+        СТИЛЬ: ${style}
+
+        Требования:
+        - Пост должен раскрывать тему "${userTheme}" через призму личного опыта из воспоминаний
+        - Используй конкретные детали и ситуации из воспоминаний
+        - Стиль должен быть ${style}
+        - Тон: личный, искренний, основанный на реальном опыте
+        - Без излишней метафоричности
+        - Понятный и близкий читателю
+        - Объедини воспоминания в цельное размышление на заданную тему
+
+        Верни только текст поста без кавычек и дополнительного форматирования.`;
+
+        logger.info('[PostManager] Calling AI model for user theme content generation...');
+        const userThemeBasedContent = await currentRuntime.useModel('TEXT_SMALL', {
+          prompt: userThemePostPrompt,
+        });
+
+        logger.info('[PostManager] AI model response received for user theme:', {
+          contentLength: userThemeBasedContent?.length || 0,
+          contentPreview: userThemeBasedContent?.substring(0, 100) || 'No content',
+        });
+
+        if (!userThemeBasedContent) {
+          logger.error('[PostManager] AI model returned empty content for user theme');
+          await ctx.reply('Не удалось создать пост на эту тему.');
+          return;
+        }
+
+        logger.info('[PostManager] Storing user theme content and creating buttons...');
+
+        // Store the generated content for editing
+        const hash = await this.editManager.storeTemporaryContent(
+          userThemeBasedContent,
+          this.postEditConfig.storagePrefix
+        );
+        await this.runtime.setSetting(this.postEditConfig.draftKey, userThemeBasedContent);
+        await this.runtime.setSetting(this.postEditConfig.aiEditModeKey, 0);
+        await this.runtime.setSetting(this.postEditConfig.manualEditModeKey, 0);
+
+        // Store theme settings for potential regeneration
+        await this.runtime.setSetting('current_post_theme', userTheme);
+        await this.runtime.setSetting('current_post_style', style);
+        await this.runtime.setSetting('current_post_format', format);
+
+        const buttons = this.editManager.generateEditButtons(hash, this.postEditConfig);
+        logger.info('[PostManager] Buttons generated for user theme, sending final message...');
+
+        await ctx.reply(
+          `📝 **Пост на тему "${userTheme}":**\n\n${userThemeBasedContent}\n\n` +
+            `💭 *Основано на ${relevantMemories.length} воспоминаниях*`,
+          {
+            reply_markup: { inline_keyboard: buttons },
+            parse_mode: 'Markdown',
+          }
+        );
+
+        logger.info('[PostManager] Final user theme post message sent successfully');
+      } finally {
+        if (originalCharacter) {
+          (currentRuntime as any).character = originalCharacter;
+          logger.info('[PostManager] Restored original character after user theme generation');
+        }
+      }
+    } catch (error) {
+      logger.error('[PostManager] Error generating user theme-based post:', error);
+      await ctx.reply('Произошла ошибка при создании поста по теме.');
     }
   }
 
@@ -278,6 +488,234 @@ export class PostManager {
       logger.error('[PostManager] Error generating theme-based post:', error);
       await ctx.reply('Произошла ошибка при создании поста по теме.');
     }
+  }
+
+  /**
+   * Searches for memories related to a specific theme using keyword matching and AI analysis
+   */
+  private async searchMemoriesByTheme(theme: string, maxResults: number = 10): Promise<any[]> {
+    try {
+      logger.info('[PostManager] Searching memories for theme:', { theme, maxResults });
+
+      // Get recent memories (last 30 days by default, can be adjusted)
+      const endTime = Date.now();
+      const startTime = endTime - 30 * 24 * 60 * 60 * 1000; // 30 days
+
+      // First, get a broader set of recent memories
+      const recentMemories = await this.runtime.getMemories({
+        tableName: 'messages',
+        start: startTime,
+        end: endTime,
+        count: 200, // Get more to filter from
+      });
+
+      if (!recentMemories || recentMemories.length === 0) {
+        logger.warn('[PostManager] No recent memories found for theme search');
+        return [];
+      }
+
+      logger.info('[PostManager] Retrieved memories for filtering:', {
+        count: recentMemories.length,
+      });
+
+      // Extract keywords from the theme for initial filtering
+      const themeKeywords = this.extractKeywords(theme);
+      logger.info('[PostManager] Extracted theme keywords:', { themeKeywords });
+
+      // Filter memories that contain theme-related keywords
+      const keywordFilteredMemories = recentMemories.filter((memory) => {
+        const text = memory.content?.text?.toLowerCase() || '';
+        return themeKeywords.some((keyword) => text.includes(keyword.toLowerCase()));
+      });
+
+      logger.info('[PostManager] Memories after keyword filtering:', {
+        count: keywordFilteredMemories.length,
+      });
+
+      // If we have some keyword matches, use AI to find the most relevant ones
+      if (keywordFilteredMemories.length > 0) {
+        const relevantMemories = await this.aiFilterMemoriesByRelevance(
+          theme,
+          keywordFilteredMemories,
+          maxResults
+        );
+        return relevantMemories;
+      }
+
+      // If no keyword matches, use AI to analyze all recent memories for thematic relevance
+      logger.info('[PostManager] No keyword matches, using AI for semantic analysis...');
+      const semanticMatches = await this.aiFilterMemoriesByRelevance(
+        theme,
+        recentMemories.slice(0, 50), // Limit to prevent overwhelming the AI
+        maxResults
+      );
+
+      return semanticMatches;
+    } catch (error) {
+      logger.error('[PostManager] Error searching memories by theme:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Extracts keywords from a theme for initial filtering
+   */
+  private extractKeywords(theme: string): string[] {
+    // Simple keyword extraction - split by spaces and remove common words
+    const commonWords = [
+      'и',
+      'в',
+      'на',
+      'с',
+      'по',
+      'для',
+      'от',
+      'до',
+      'из',
+      'о',
+      'про',
+      'у',
+      'к',
+      'через',
+      'при',
+      'без',
+      'за',
+      'над',
+      'под',
+      'перед',
+      'после',
+      'во',
+      'со',
+      'со',
+      'the',
+      'and',
+      'or',
+      'but',
+      'in',
+      'on',
+      'at',
+      'to',
+      'for',
+      'of',
+      'with',
+      'by',
+      'from',
+      'up',
+      'about',
+      'into',
+      'over',
+      'after',
+    ];
+
+    const keywords = theme
+      .toLowerCase()
+      .split(/[\s,.-]+/)
+      .filter((word) => word.length > 2 && !commonWords.includes(word))
+      .map((word) => word.trim())
+      .filter((word) => word.length > 0);
+
+    // Also add the full theme as a potential match
+    if (theme.length > 3) {
+      keywords.push(theme.toLowerCase());
+    }
+
+    return keywords;
+  }
+
+  /**
+   * Uses AI to filter memories by relevance to the theme
+   */
+  private async aiFilterMemoriesByRelevance(
+    theme: string,
+    memories: any[],
+    maxResults: number
+  ): Promise<any[]> {
+    try {
+      if (memories.length === 0) return [];
+
+      logger.info('[PostManager] Using AI to filter memories by relevance:', {
+        theme,
+        memoryCount: memories.length,
+        maxResults,
+      });
+
+      // Create a summary of memories for AI analysis
+      const memorySummaries = memories
+        .map((memory, index) => {
+          const text = memory.content?.text || '';
+          const preview = text.length > 200 ? text.substring(0, 200) + '...' : text;
+          return `${index}: ${preview}`;
+        })
+        .join('\n\n');
+
+      const relevancePrompt = `Проанализируй следующие воспоминания и определи, какие из них наиболее релевантны теме "${theme}".
+
+      ВОСПОМИНАНИЯ:
+      ${memorySummaries}
+
+      ЗАДАЧА:
+      Выбери до ${maxResults} наиболее релевантных воспоминаний, которые связаны с темой "${theme}".
+      Учитывай как прямые упоминания, так и косвенную связь через эмоции, ситуации или контекст.
+
+      ФОРМАТ ОТВЕТА:
+      Верни только номера релевантных воспоминаний через запятую, например: 1, 5, 12, 15
+      Если релевантных воспоминаний нет, верни: "none"`;
+
+      const aiResponse = await this.runtime.useModel('TEXT_SMALL', {
+        prompt: relevancePrompt,
+      });
+
+      logger.info('[PostManager] AI relevance analysis response:', { aiResponse });
+
+      if (!aiResponse || aiResponse.toLowerCase().includes('none')) {
+        logger.info('[PostManager] AI found no relevant memories');
+        return [];
+      }
+
+      // Parse the AI response to get memory indices
+      const selectedIndices = aiResponse
+        .split(',')
+        .map((str) => parseInt(str.trim()))
+        .filter((num) => !isNaN(num) && num >= 0 && num < memories.length);
+
+      logger.info('[PostManager] AI selected memory indices:', { selectedIndices });
+
+      // Return the selected memories
+      const selectedMemories = selectedIndices.map((index) => memories[index]);
+
+      logger.info('[PostManager] Returning AI-filtered memories:', {
+        count: selectedMemories.length,
+      });
+
+      return selectedMemories;
+    } catch (error) {
+      logger.error('[PostManager] Error in AI memory filtering:', error);
+      // Fallback to keyword-based selection if AI fails
+      return memories.slice(0, maxResults);
+    }
+  }
+
+  /**
+   * Formats memories for use in AI context
+   */
+  private formatMemoriesForContext(memories: any[]): string {
+    if (memories.length === 0) {
+      return 'Нет доступных воспоминаний.';
+    }
+
+    return memories
+      .map((memory, index) => {
+        const text = memory.content?.text || '';
+        const date = memory.createdAt
+          ? new Date(memory.createdAt).toLocaleDateString('ru-RU')
+          : 'неизвестно';
+
+        // Limit memory text length to avoid overwhelming the context
+        const truncatedText = text.length > 300 ? text.substring(0, 300) + '...' : text;
+
+        return `Воспоминание ${index + 1} (${date}): ${truncatedText}`;
+      })
+      .join('\n\n');
   }
 
   /**

@@ -209,8 +209,8 @@ export const agentTemplates: AgentTemplate[] = [
       ],
       style: {
         all: [
-          'Be concise and impactful',
-          'Stay within character limits',
+          'Be expressive and detailed',
+          'Write without artificial length restrictions',
           'Use platform-appropriate formatting',
         ],
         chat: [

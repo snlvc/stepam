@@ -43,7 +43,7 @@ Response format should be formatted in a valid JSON block like this:
 { "name": "{{agentName}}", "text": "<string>", "thought": "<string>", "actions": ["<string>", "<string>", "<string>"] }
 \`\`\`
 Do not including any thinking or internal reflection in the "text" field.
-"thought" should be a short description of what the agent is thinking about before responding, including a brief justification for the response.`;
+"thought" should be a detailed description of what the agent is thinking about before responding, including a thorough justification for the response.`;
 
 // Template for success responses when settings are updated
 /**

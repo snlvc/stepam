@@ -108,8 +108,8 @@ Example task outputs:
 {{providers}}
 
 Write a post that is {{adjective}} about {{topic}} (without mentioning {{topic}} directly), from the perspective of {{agentName}}. Do not add commentary or acknowledge this request, just write the post.
-Your response should be 1, 2, or 3 sentences (choose the length at random).
-Your response should not contain any questions. Brief, concise statements only. The total character count MUST be less than 280. No emojis. Use \\n\\n (double spaces) between statements if there are multiple statements in your response.
+You can write as many sentences as needed to fully express your thoughts.
+Write naturally without artificial length restrictions. Use \\n\\n (double spaces) between paragraphs if you have multiple paragraphs in your response.
 
 Your output should be formatted in XML like this:
 <response>
@@ -120,7 +120,7 @@ Your output should be formatted in XML like this:
 
 The "post" field should be the post you want to send. Do not including any thinking or internal reflection in the "post" field.
 The "imagePrompt" field is optional and should be a prompt for an image that is relevant to the post. It should be a single sentence that captures the essence of the post. ONLY USE THIS FIELD if it makes sense that the post would benefit from an image.
-The "thought" field should be a short description of what the agent is thinking about before responding, inlcuding a brief justification for the response. Includate an explanation how the post is relevant to the topic but unique and different than other posts.
+The "thought" field should be a detailed description of what the agent is thinking about before responding, including a thorough justification for the response. Include an explanation of how the post is relevant to the topic but unique and different than other posts.
 
 Do NOT include any thinking, reasoning, or <think> sections in your response. 
 Go directly to the XML response format without any preamble or explanation.

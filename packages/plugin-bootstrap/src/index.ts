@@ -1418,7 +1418,7 @@ export const bootstrapPlugin: Plugin = {
     providers.attachmentsProvider,
     providers.providersProvider,
     providers.actionsProvider,
-    providers.actionStateProvider,
+    // providers.actionStateProvider, // Commented out to prevent action history from cluttering prompts
     providers.characterProvider,
     providers.recentMessagesProvider,
     providers.worldProvider,

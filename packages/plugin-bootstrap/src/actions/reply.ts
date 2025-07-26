@@ -81,7 +81,7 @@ export const replyAction = {
     state = await runtime.composeState(message, [
       ...(allProviders ?? []),
       'RECENT_MESSAGES',
-      'ACTION_STATE',
+      // 'ACTION_STATE', // Commented out to avoid previous action history cluttering the prompt
     ]);
 
     const prompt = composePromptFromState({
